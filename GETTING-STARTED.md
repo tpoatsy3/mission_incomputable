@@ -241,9 +241,8 @@ You can view the current configured remotes as follows (example output shown):
 
 ```bash
 $ git remote -v
-.......UPDATE ME......
-origin	https://gitlab.cs.dartmouth.edu/USERNAME/tse.git (fetch)
-origin	https://gitlab.cs.dartmouth.edu/USERNAME/tse.git (push)
+origin	https://gitlab.cs.dartmouth.edu/USERNAME/project-starter-kit.git (fetch)
+origin	https://gitlab.cs.dartmouth.edu/USERNAME/project-starter-kit.git (push)
 ```
 
 where `USERNAME` is the username of the GitLab user that forked the project starter-kit. When you run git commands such as `git pull` and `git push`, the git command-line tool uses these URLs to determine from where to pull code and where to push code. Notice that, after `fork`ing the project, your default remote is a copy of the starter-kit for the project in `USERNAME`'s GitLab account.
@@ -256,11 +255,14 @@ $ git remote add ALIAS https://github.com/ORIGINAL_OWNER/ORIGINAL_REPOSITORY.git
 
 where `ALIAS` is something like `upstream` (a human readable alias for the new remote you are adding), where `ORIGINAL_OWNER` is `traviswpeters` (the owner of the repo which you `fork`ed) and `ORIGINAL_REPOSITORY` is `project-starter-kit` (the original name of the repository which you `fork`ed).
 
-You can verify that the remote was added by again running:
+You can verify that the remote was added by again running `git remote -v`. For example:
 
 ```bash
 $ git remote -v
-.......UPDATE ME......
+origin	https://gitlab.cs.dartmouth.edu/USERNAME/project-starter-kit.git (fetch)
+origin	https://gitlab.cs.dartmouth.edu/USERNAME/project-starter-kit.git (push)
+upstream	https://gitlab.cs.dartmouth.edu/traviswpeters/project-starter-kit.git (fetch)
+upstream	https://gitlab.cs.dartmouth.edu/traviswpeters/project-starter-kit.git (push)
 ```
 
 Suppose you post a message about updating the provided code.
@@ -271,5 +273,4 @@ Suppose you post a message about updating the provided code.
 $ git pull ALIAS master
 ```
 
-where `ALIAS` is the alias for the remote you created above and `master` indicates the branch that you'd like to pull from (we will keep all updates on the `master` branch). 
-
+where `ALIAS` is the alias for the remote you created above (e.g., `upstream`) and `master` indicates the branch that you'd like to pull from (we will keep all updates on the `master` branch). 
