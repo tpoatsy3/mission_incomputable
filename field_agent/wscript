@@ -1,8 +1,6 @@
 #
 # This file is the default set of rules to compile a Pebble project.
 #
-# Feel free to customize this to your needs.
-#
 
 import os.path
 
@@ -22,12 +20,14 @@ def configure(ctx):
     """
     ctx.load('pebble_sdk')
 
-def build(ctx):
-    ctx.load('pebble_sdk')
+def copy_appinfo():
+    """ CS 50 Hack!
 
-    ############################################################################
-    # CS50 HACK: Copy appinfo.json to src/js/appinfo.js as a variable, making it 
-    # accessible to the code -- all code shares this one config file. 
+    This method is used to copy appinfo.json to src/js/appinfo.js as a variable, 
+    making it accessible to app.js -- the pebble app (field agent) and proxy 
+    shares this one config file, making it easier for students to manage the 
+    various components in the Mission Incomputable project.
+    """
     with open('appinfo.json', 'r') as infile:
         data=infile.read()
 
@@ -37,7 +37,23 @@ def build(ctx):
         outfile.write(";")
         outfile.write("\n\nmodule.exports.config = config;")
         outfile.close()
-    ############################################################################
+
+def debug_files(ctx, show):
+    if (show):
+        print
+        print '----- pebble srcs -----'
+        print ctx.path.ant_glob('src/**/*.c')
+        print '----- ../common srcs -----'
+        print ctx.path.find_node('../').ant_glob('common/**/*.c')
+        print '----- ../lib srcs (not supported yet - this is just debug) -----'
+        print ctx.path.find_node('../').ant_glob('lib/**/*.c')
+        print
+
+def build(ctx):
+    ctx.load('pebble_sdk')
+
+    # CS50 Hack!
+    copy_appinfo()
 
     build_worker = os.path.exists('worker_src')
     binaries = []
@@ -46,7 +62,14 @@ def build(ctx):
         ctx.set_env(ctx.all_envs[p])
         ctx.set_group(ctx.env.PLATFORM_NAME)
         app_elf = '{}/pebble-app.elf'.format(ctx.env.BUILD_DIR)
-        ctx.pbl_program(source=ctx.path.ant_glob('src/**/*.c'), target=app_elf)
+
+        # CS50 Hack! (rather, an extension)
+        # -> https://forums.pebble.com/t/how-to-include-external-source-directories-in-a-pebble-build/11014/7 <<< including files outside of the pebble dir/
+        debug_files(ctx, True)
+        ctx.pbl_program(
+            source=ctx.path.ant_glob('src/**/*.c') 
+                + ctx.path.find_node('../').ant_glob('common/**/*.c'),
+            target=app_elf)
 
         if build_worker:
             worker_elf = '{}/pebble-worker.elf'.format(ctx.env.BUILD_DIR)
