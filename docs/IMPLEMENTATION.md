@@ -1,6 +1,61 @@
 # Implementation Spec for Mission Incomputable
 # Team Topaz
 
+##Field Agent
+### Pseudocode
+
+1. call main() function when app opens
+2. send message to server that guide agent has entered game with game number 0, the pebbleID, the team name and player name
+3. call init() function to set up UI elements
+    1. create the window with window_create()
+    2. set the window handlers to window_load and window_unload
+    3. push the window to the top of the stack
+4. call window_load() to actually load these elements
+    1. create a text layer for the status
+    2. create a simplemenulayer with three options
+        1. neutralize code drop
+        2. capture player
+        3. view messages
+5. call app_event_loop to wait for clicks
+    1. if server sends a message to pebble
+        1. parse the status and put it into the string
+        2. update status
+        3. put that message into the list of messages
+    2. if neutralize code drop is pressed
+        - call select_number() four times
+            1. each time will load a simplemenulayer with choices from 0-10 and retain each choice
+            2. call confirm_choice()
+                - will load menu similar to first
+                    1. textlayer is the code chosen
+                    2. menu options are confirm or cancel
+                    3. if confirm is pressed, calls the (FA_NEUTRALIZE OPCODE) with the same information as join game except for the updated gameID and the code ID (4 digit hex)
+                    4. returns to original screen
+    3. if capture player is pressed
+        - call select_number() four times
+            1. each time will load a simplemenulayer with choices from 0-10 and retain each choice
+            2. call confirm_choice()
+                - will load menu similar to first
+                    1. textlayer is the code chosen
+                    2. menu options are confirm or cancel
+                    3. if confirm is pressed, calls the (FA_CAPTURE OPCODE) with the same information as above except including the captured player’s hex code and does not include location 
+                    4. returns to original screen
+    4. if view messages is pressed
+        1. displays a text layer
+        2. loads each message from the list into the text layer
+6. call window unload to destroy window elements
+    1. destroy the text layer
+    2. destroy the simplemenulayer
+7. call deinit() to destroy app elements
+    - call window_destroy on the window element
+
+### Data Structures
+
+– Window Struct: holds the UI elements of the Pebble face, declared in the Pebble SDK
+– TextLayer Struct: a UI element that displays text
+– SimpleMenuLayer Struct: a UI element that allows you to display and select an item from a menu
+– List Struct: holds messages recieved by the server
+
+
 ## Guide Agent
 ### Pseudocode
 1. execute from the commandline with usage syntax
