@@ -1,5 +1,5 @@
 # Design Spec
-![alt text](MI-Network.png "Network Diagram courtesy of Travis Peters")
+![alt text](MI-network.png "Network Diagram courtesy of Travis Peters")
 ### Field Agent
 ##### User Interface
 - The field agent is run through a pebble watch connected to a smartphone. The user interacts through buttons on the pebble watch
