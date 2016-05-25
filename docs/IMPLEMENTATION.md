@@ -1,7 +1,10 @@
 # Implementation Spec for Mission Incomputable
 # Team Topaz
 
-##Field Agent
+## Field Agent
+
+&nbsp;
+
 ### Pseudocode
 
 1. call main() function when app opens
@@ -53,8 +56,11 @@
 ### Data Structures
 
 – Window Struct: holds the UI elements of the Pebble face, declared in the Pebble SDK
+
 – TextLayer Struct: a UI element that displays text
+
 – SimpleMenuLayer Struct: a UI element that allows you to display and select an item from a menu
+
 – List Struct: holds messages recieved by the server
 
 
@@ -113,26 +119,24 @@
 - Hashtable of Code Drops: Hashtable storing all the code drops
 - List of Notifications: Record of previous notifications recieved from the game server, i.e. when new agents are added, locations are updated, or statuses are updated
 
-##Game Server
+## Game Server
 
-###Psudocode
+### Psudocode
 
 The way we implement the `game server` is by going throw the detailed pseudo-code step by step, and verify the method, results, and any memory leaks before we move to the next step. In case, a data structure needs to be deleted, a `delete` function will be used at the end of the code to ensure accuracy in detecting any memory leaks. Also, we are planning to leverage the `list` and `counters` data structures and pre-tested functions.
 The Game server code will follow roughly the following outline:
 
 
-1.      Execute from the command line with usage syntax
+1. Execute from the command line with usage syntax
+    * `./gameserver [-log=raw] [-level=2] codeDropPath GSport time`
+    * where `codeDropPath` represents the path name for the code-drop file, 
+    * where `GSport` is the game server port number,
+    * where `time` is the duration of the game in minutes
+    * `[-log=raw]` for more extensive logging option
+    * `[-level=2]` to choose level 2 of the game
 
 
-    - `./gameserver [-log=raw] [-level=2] codeDropPath GSport time`
-    - where `codeDropPath` represents the path name for the code-drop file, 
-    - where `GSport` is the game server port number,
-    - where `time` is the duration of the game in minutes
-    - `[-log=raw]` for more extensive logging option
-    - `[-level=2]` to choose level 2 of the game
-
-
-2.      parse the command line, validate parameters, initialize other models
+2. parse the command line, validate parameters, initialize other models
     - confirming that `codeDropPath` is not `NULL`
     - confirming that `codeDropPath` has the right format
     - confirming that `time` has the right format (digits only), if zero, it is considered unlimited
@@ -146,9 +150,9 @@ The Game server code will follow roughly the following outline:
         - exit if setting up the socket encounters any errors
 3. create a random game number between 1 and 65535 for the new game
 4. create a new statistics structure that includes starting time, number of remaining code drops, and information about each team statistics
-4.       create a logfile `guideserver.log` in a log directory
+4. create a logfile `guideserver.log` in a log directory
     - update the log with start-up information (host/port where server is running, number of deaddrops, game number, game statistics information, ..etc)
-5.       while there are deaddrops to be neutralized or error happens or the termination flag is not set or the time is not expired
+5. while there are deaddrops to be neutralized or error happens or the termination flag is not set or the time is not expired
     - draw GUI using gtk
         - For each active agent in the list, draw  their location on the map
         - For each active code drop in the list,  draw its location on the map
@@ -293,7 +297,7 @@ The Game server code will follow roughly the following outline:
 
 
 
-###Data structures (e.g., struct names and members)
+### Data structures (e.g., struct names and members)
 
 - Field Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `pebbleID`, `status`, `last-contact-time`, `captureCode`, and `capturedBy`, `long`, and `lat`
 - Guide Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `agentID`, `last-contact-time`
@@ -305,3 +309,5 @@ The Game server code will follow roughly the following outline:
 - list of all the teams
 
 i.e. when new agents are added, locations are updated, and/or statuses are updated
+
+##### Privacy and Security
