@@ -310,4 +310,18 @@ The Game server code will follow roughly the following outline:
 
 i.e. when new agents are added, locations are updated, and/or statuses are updated
 
-##### Privacy and Security
+*Security and privacy properties, Error handling and recovery*
+
+1. Helper functions within structure codes to prevent user access to data structures
+2. Defensive coding against incorrect inputs
+3. `valgrind` command and memory.c
+
+&nbsp;
+
+*Persistent storage (log files)*
+
+-We will only keep two kinds of log files
+    - the game server log file (gameserver.log)
+    - the guide agent logfile (guideagent.log)
+
+&nbsp;
