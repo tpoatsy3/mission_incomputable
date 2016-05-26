@@ -301,7 +301,7 @@ The Game server code will follow roughly the following outline:
 
 - Field Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `pebbleID`, `status`, `last-contact-time`, `captureCode`, and `capturedBy`, `long`, and `lat`
 - Guide Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `agentID`, `last-contact-time`
-- Code Drop Struct: Stores `lat`, `long`, `status`, and neutralizing team
+- Code Drop Struct: Stores `lat`, `long`, `status`, and `neutralizing_team`
 - game statistics structure: stores starting time, number of remaining code drops, and information about each team statistics
 - UDP structure: from the standard library
 - list of all the field players
