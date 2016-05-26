@@ -2,18 +2,36 @@
 #
 # Topaz, May 2016
 
-CC = gcc
-CFLAGS = -Wall -pedantic -std=c11 -ggdb
+L = ./lib
+C = ./common
 
-server: server.o
-	$(CC) $(CFLAGS) server.o -o server
+PROG = server
+OBJS = server.o 
+LLIBS = $L/cs50ds.a
+CLIBS = $C/common.a
+
+CC = gcc
+CFLAGS = -Wall -pedantic -std=c11 -ggdb -I$L -I$C
+MAKE = make
+
+$(PROG): $(OBJS) $(LLIBS) $(CLIBS)
+	$(CC) $(CFLAGS) $^  -o $@
 
 server.o:
+
+# build the library
+$L/cs50ds.a: 
+	cd $L; $(MAKE)
+
+$C/common.a: 
+	cd $C; $(MAKE)
 
 clean: 
 	rm -f *~
 	rm -f *.o
-	rm -f server
+	rm -f $(PROG)
+	cd $L; $(MAKE) clean
+	cd $C; $(MAKE) clean
 
 
 
