@@ -5,7 +5,7 @@
 PROGS = chatclient chatserver
 LIBS = 
 LLIBS = $L/cs50ds.a
-L = ../project/project-starter-kit/game_server/lib
+L = ../../lib
 
 
 # added  -Wno-braced-scalar-init because Linux and MacOS disagree
