@@ -16,9 +16,12 @@ Ihab Basri, Ted Poatsy
 #include <errno.h>
 #include <sys/stat.h>
 #include <unistd.h>
-
 #include "hashtable/hashtable.h"
 #include "file.h"
+#include <strings.h>	      
+#include <arpa/inet.h>	      
+#include <sys/select.h>	      
+
 
 //Data Structures
 const struct option longOpts[] = {
@@ -40,7 +43,7 @@ typedef struct code_drop {
 	float lng;
 	float lat;
 	int status; // 0 means not neutralized
-	int team;
+	char *team;
 } code_drop_t;
 
 
@@ -56,6 +59,7 @@ void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
 bool isItValidFloat(char *floatNumber);
 bool load_codeDropPath(code_drop_t * code_drop, char* line, char* token, hashtable_t* codeDropHash);
+static int socket_setup(int GSPort);
 
 
 
@@ -63,6 +67,8 @@ int main(int argc, char *argv[]){
 	
 	game_t *game_p;
 	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(5);
+
+	int comm_sock;
 	
 	game_p->level = 1;
 	game_p->timeVal = 0;
@@ -91,6 +97,9 @@ int main(int argc, char *argv[]){
 		free(game_p);
 		exit(4);
 	}
+
+	//Create UDP socket here
+	comm_sock = socket_setup(game_p->GSPort);
 	
 	if (!game_server(argv, game_p)) {
 		printf("something went wrong\n");
@@ -274,7 +283,7 @@ bool readFile(char* codeDropPath, hashtable_t* codeDropHash){
 		code_drop -> lng = 0.0;
 		code_drop -> lat = 0.0;
 		code_drop -> status = 0; 
-		code_drop -> team = 0;
+		code_drop -> team = NULL;
 		
 		if(!load_codeDropPath(code_drop, line, token, codeDropHash)) {
 			free(line); //free everything and return false if it fails
@@ -349,7 +358,6 @@ bool isItValidFloat(char *floatNumber){
 	return true;
 }
 
-
 /***DEBUGGING***/
 void hashTable_print(void *key, void* data, void* farg){
 	if (key && data){ //if valid
@@ -358,4 +366,29 @@ void hashTable_print(void *key, void* data, void* farg){
 
 		printf("\n"); // a new line in the file
 	}
+}
+
+//This was directly taken from chatserver1.c and slightly modified.
+/* All the ugly work of preparing the datagram socket;
+ * exit program on any error.
+ */
+static int socket_setup(int GSPort) {
+  // Create socket on which to listen (file descriptor)
+  int comm_sock = socket(AF_INET, SOCK_DGRAM, 0);
+  if (comm_sock < 0) {
+    perror("opening datagram socket");
+    exit(1);
+  }
+
+  // Name socket using wildcards
+  struct sockaddr_in server;  // server address
+  server.sin_family = AF_INET;
+  server.sin_addr.s_addr = INADDR_ANY;
+  server.sin_port = htons(58503);
+  if (bind(comm_sock, (struct sockaddr *) &server, sizeof(server))) {
+    perror("binding socket name");
+    exit(2); //exit codes?
+  }
+
+  return (comm_sock);
 }
