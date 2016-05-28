@@ -31,6 +31,7 @@ const struct option longOpts[] = {
 	{ "level", required_argument, 0, 'l'},
 	{ "time", required_argument, 0, 't'},
 	{ "rawlog", no_argument, 0, 'r'},
+	{ "game", required_argument, 0, 'g'},
 	{ 0, 0, 0, 0}
 };
 
@@ -107,15 +108,16 @@ bool processing(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDel
 int parsingMessages(char* line, char ** messageArray);
 int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
 void freeArray(char** array, int size);
+char *makeRandomHex();
+
 
 
 
 int main(int argc, char *argv[]){
 	
 	srand(time(NULL));
-	int r = rand() %65535;
-	char hex[9] = "00000000\0";
-	sprintf(hex, "%X", r);
+
+
 	
 	game_t *game_p;
 	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(5);
@@ -127,36 +129,53 @@ int main(int argc, char *argv[]){
 	game_p->deadDropRemaining = 0;
 
 	//think of a way to genearlize this function
-	game_p->gameID = hex;
+
+
+	//Assign Game ID
+	char *gameID = makeRandomHex();
+	// printf("GameID 1: %s\n", gameID);
+	game_p->gameID = gameID;
 
 	if (!verifyFlags(argc, argv, game_p)){
+		free(game_p->gameID);
 		free(game_p);
 		exit(1);
 	}
+	printf("%s\n", game_p->gameID);
+
 	
 	if ((argc-optind) != 2){
 		printf("Invalid number of arguments\n");
 		printf("Usage: ./gameserver [-log] [-level = 1 or 2] [-time (in Minutes)] codeDropPath GSport\n");
+		free(game_p->gameID);
 		free(game_p);
 		exit(2);
 	}
 
+	
+
 	if (!verifyPort(argc, argv, game_p)){
+		free(game_p->gameID);
 		free(game_p);
 		exit(3);
 	}
 
 	if (!verifyFile(argc, argv)){
+		free(game_p->gameID);
 		free(game_p);
 		exit(4);
 	}
-	
+
+
 	if (!game_server(argv, game_p)) {
 		printf("something went wrong\n");
+		free(game_p->gameID);
 		free(game_p);
 		exit(5);
 	}
 
+	printf("%s\n", game_p->gameID);
+	free(game_p->gameID);
 
 
 /***DEBUGGING***/
@@ -166,7 +185,8 @@ int main(int argc, char *argv[]){
 	printf("GSPort: %d\n", game_p->GSPort);
 	printf("deadDropRemaining: %d\n", game_p->deadDropRemaining);
 /***DEBUGGING***/
-	
+
+
 	free(game_p);
 	exit(0);
 }
@@ -178,7 +198,7 @@ bool game_server (char *argv[], game_t *game_p) {
 	char *arg1 = argv[optind];
 	
 	//if error with loading the codes from file
-	if ((codeDropPath = load_codeDrop(arg1))== NULL) return false;
+	if ((codeDropPath = load_codeDrop(arg1)) == NULL) return false;
 	
 	//hashtable print
 	hash_iterate(codeDropPath, hashTable_print, NULL);
@@ -187,7 +207,10 @@ bool game_server (char *argv[], game_t *game_p) {
 	hash_iterate(codeDropPath, numberOfcodeDrops, game_p);
 
 	//setting up the socket
-	comm_sock = socket_setup(game_p->GSPort);
+	if ((comm_sock = socket_setup(game_p->GSPort)) == -1) {
+		hashtable_delete(codeDropPath);
+		return false;
+	}
 
 	hashtable_t *hash = hashtable_new( 1, delete, NULL);
 
@@ -211,7 +234,8 @@ bool game_server (char *argv[], game_t *game_p) {
 			perror("select()");
 			close(comm_sock);
 			hashtable_delete(hash);
-			exit(9);
+			hashtable_delete(codeDropPath);
+			return false;
     
 		} else if (select_response > 0) {
 			// some data is ready on either source, or both
@@ -235,10 +259,11 @@ bool game_server (char *argv[], game_t *game_p) {
 
 
 bool verifyFlags(int argc, char *argv[], game_t *game_p){
-	
+
 	int option = 0;	
 	int tempInt;
-	while  ((option = getopt_long (argc, argv, "+l:t:r", longOpts, NULL)) != -1){
+	long tempLong;
+	while  ((option = getopt_long (argc, argv, "+l:t:rg:", longOpts, NULL)) != -1){
 		switch (option){
 			case 'l' :
 				if (!isItValidInt(optarg)){
@@ -269,6 +294,20 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 
 			case 'r':
 				game_p->rawlogFl = 1;
+				break;
+
+			case 'g':
+				//verify that the input is an integer between 1 and 4294967295
+				tempLong = atol(optarg);
+				if (!isItValidInt(optarg) || (tempLong > 4294967295 || tempLong < 1)){
+					printf("Invalid gameID\n");
+					return false;
+				} else {
+					free(game_p->gameID);
+					char *gameID = malloc(9*sizeof(char));
+					sprintf(gameID, "%lX", tempLong);
+					game_p->gameID = gameID;
+				}
 				break;
 
 			default:
@@ -476,7 +515,7 @@ static int socket_setup(int GSPort) {
   int comm_sock = socket(AF_INET, SOCK_DGRAM, 0);
   if (comm_sock < 0) {
     perror("opening datagram socket");
-    exit(11);
+    return -1;
   }
 
   // Name socket using wildcards
@@ -486,7 +525,7 @@ static int socket_setup(int GSPort) {
   server.sin_port = htons(GSPort);
   if (bind(comm_sock, (struct sockaddr *) &server, sizeof(server))) {
     perror("binding socket name");
-    exit(12); //exit codes?
+    return -1; //exit codes?
   }
 
   return (comm_sock);
@@ -735,5 +774,13 @@ int copyValidKeywordsToQueryArray( char ** array, char* word, int count){
 	strcpy(array[count], word); //add the keywords into the query array
 	count++; //incremenete the number of keywords counter
 	return count;
+}
+
+char *makeRandomHex(){
+	//REMEMBER TO FREE WHATEVER COMES OUT OF THIS
+	char *outStr = malloc(9 * sizeof(char));
+	int r = rand() %65535;
+	sprintf(outStr, "%X", r);
+	return outStr;
 }
 
