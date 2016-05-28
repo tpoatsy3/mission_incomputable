@@ -64,26 +64,20 @@ main(const int argc, char *argv[])
       // some error occurred
       perror("select()");
       exit(9);
-    } else if (select_response == 0) {
-      // timeout occurred; encourage our user to write
-      printf("? ");
-      fflush(stdout);
-    } else if (select_response > 0) {
-      // some data is ready on either source, or both
+    }
 
       if (FD_ISSET(0, &rfds)) 
-	if (handle_stdin(comm_sock, &them) == EOF)
-	  break; // exit loop if EOF on stdin
+      	if (handle_stdin(comm_sock, &them) == EOF)
+      	  break; // exit loop if EOF on stdin
 
       if (FD_ISSET(comm_sock, &rfds)) {
-	handle_socket(comm_sock, &them);
+	     handle_socket(comm_sock, &them);
       }
 
       // print a fresh prompt
-      printf(": ");
       fflush(stdout);
     }
-  }
+  
 
   close(comm_sock);
   putchar('\n');
