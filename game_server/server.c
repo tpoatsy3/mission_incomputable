@@ -22,7 +22,8 @@ Ihab Basri, Ted Poatsy
 #include <arpa/inet.h>	      
 #include <sys/select.h>	  
 #include <sys/socket.h>
-#include <netinet/in.h>  
+#include <netinet/in.h>
+#include <time.h>
 
 
 /************* Function Declarations ****************/
@@ -34,6 +35,7 @@ const struct option longOpts[] = {
 };
 
 typedef struct game {
+	char *gameID;
 	int level;
 	int timeVal;
 	int rawlogFl;
@@ -102,10 +104,18 @@ void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char *buf, char* th
 void GAME_OVER_handler(int comm_sock, hashtable_t *hash);
 void GA_HINT_iterator(void* key, void* data, void* farg);
 bool processing(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
+int parsingMessages(char* line, char ** messageArray);
+int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
+void freeArray(char** array, int size);
 
 
 
 int main(int argc, char *argv[]){
+	
+	srand(time(NULL));
+	int r = rand() %65535;
+	char hex[9] = "00000000\0";
+	sprintf(hex, "%X", r);
 	
 	game_t *game_p;
 	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(5);
@@ -115,7 +125,10 @@ int main(int argc, char *argv[]){
 	game_p->rawlogFl = 0;
 	game_p->GSPort = 0;
 	game_p->deadDropRemaining = 0;
-	
+
+	//think of a way to genearlize this function
+	game_p->gameID = hex;
+
 	if (!verifyFlags(argc, argv, game_p)){
 		free(game_p);
 		exit(1);
@@ -143,6 +156,8 @@ int main(int argc, char *argv[]){
 		free(game_p);
 		exit(5);
 	}
+
+
 
 /***DEBUGGING***/
 	printf("Level: %d\n", game_p->level);
@@ -520,17 +535,18 @@ void sendIterator(void* key, void* data, void* farg) {
 }
 
 static void handle_socket(int comm_sock, hashtable_t *hash){
+
+
+
     // socket has input ready
 	struct sockaddr_in sender;     // sender of this message
 	struct sockaddr *senderp = (struct sockaddr *) &sender;
 	socklen_t senderlen = sizeof(sender);  // must pass address to length
 	char buf[BUFSIZE];        // buffer for reading data from socket
 	int nbytes = recvfrom(comm_sock, buf, BUFSIZE-1, 0, senderp, &senderlen);
-	if (nbytes < 0) {
-	    perror("receiving from socket");
-	    hashtable_delete(hash);
-	    close(comm_sock);
-	    exit(13);
+	if (nbytes <= 0) {
+	    printf("Empty or improper message was recieved\n");
+	    return ;
 	} else {      
 	    buf[nbytes] = '\0';     // null terminate string
 
@@ -557,7 +573,14 @@ static void handle_socket(int comm_sock, hashtable_t *hash){
 			printf("[%s@%05d]: %s\n", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buf);
 			/****LOGGING***/
 
-			processing(comm_sock, hash, buf, name);
+			//Create array
+			char** messageArray = malloc(8 *((strlen(buf)+1)/2 + 1) ); 
+
+			if (messageArray == NULL) return false; //checking if it failed to allocate memory 
+			int count = parsingMessages(buf, messageArray);
+			processing(comm_sock, hash, messageArray[0], name);
+			freeArray(messageArray, count);// After printing the results, delete the query
+
 
 	    }
 		fflush(stdout);
@@ -565,6 +588,7 @@ static void handle_socket(int comm_sock, hashtable_t *hash){
 }
 
 bool processing(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted){
+
 	if(strcmp(buf, "FA_LOCATION") == 0){
 		//return to user
 		FA_LOCATION_handler(comm_sock, hash, buf, thisWillBeDeleted);
@@ -661,3 +685,55 @@ void deleteTempHash(void *data){
 	if (data){	//if valid
 	}
 }
+
+int parsingMessages(char* line, char ** messageArray){
+
+	char* word; // the keyword
+	int count = 0; //restart the counter that counts the number of keywords per query
+	
+	//allocating memory for the string array that stores the words after checking 
+	// the words are valid for matching
+	// 8 was chosen because the size of each pointer is 8
+	// and the other equation was chosen to account for the worst case scenario (words composed of one letter)
+	
+	if ((word = strtok(line, "|")) == NULL) return count; //parsing the first keyword
+	// if the word meets the conditions of query keywords, it will be added to the array
+	// if the line is empty, it will be ignored
+	if ( (count = copyValidKeywordsToQueryArray(messageArray, word, count)) == 0 ) return count;
+	
+	// parsing the other keywords
+	// if the word meets the conditions of query keywords, it will be added to the array
+	//when the parsing reaches the end of line, it will terminate parsing
+	while( (word = strtok(NULL, "|")) != NULL)  {
+		if ( (count = copyValidKeywordsToQueryArray(messageArray, word, count)) == 0 ) return count;
+	}
+
+	return count;
+}
+
+// A function that loops through the query array indeces and frees contents after the matching analysis is over
+// or if error happens when validating query keywords. It frees the array pointer after it is done.
+void freeArray(char** array, int size){
+
+	for(int i = 0; i < size ; i++){ //looping through the query array
+		free(array[i]); //delete the keywords
+	}
+	free(array); //delete the the query array
+}
+
+// After validating the correctness of the keywords, they are added to the query array
+// otherwise, it dellocate the memory created to store the keywords and terminate matching for the query
+int copyValidKeywordsToQueryArray( char ** array, char* word, int count){
+
+	array[count] = malloc(strlen(word) +1);
+	
+	if (array[count]  == NULL) { 
+		freeArray(array, count); //if it fails to allocate memory, delete the query
+		return 0; //terminate the matching analysis
+	}
+	
+	strcpy(array[count], word); //add the keywords into the query array
+	count++; //incremenete the number of keywords counter
+	return count;
+}
+
