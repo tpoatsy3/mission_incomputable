@@ -36,7 +36,7 @@ const struct option longOpts[] = {
 };
 
 typedef struct game {
-	char *gameID;
+	char *gameID; //malloced
 	int level;
 	int timeVal;
 	int rawlogFl;
@@ -45,8 +45,8 @@ typedef struct game {
 } game_t;
 
 typedef struct code_drop {
-	float lng;
-	float lat;
+	double lng;
+	double lat;
 	int status; // 0 means not neutralized
 	char *team;
 } code_drop_t;
@@ -69,7 +69,14 @@ typedef struct playSel {
 	void *param;
 } playSel_t;
 
-// typedef struct theSuperHashtableReferenceStructure{}
+typedef struct hashStruct{
+	hashtable_t *GA;
+	hashtable_t *FA;
+	hashtable_t *temp;
+	hashtable_t *CD;
+	game_t *game;
+
+} hashStruct_t;
 
 /*************** Kinda Global? **********************/
 static const int BUFSIZE = 1024;  
@@ -80,35 +87,38 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p);
 bool verifyPort(int argc, char *argv[], game_t *game_p);
 bool verifyFile(int argc, char *argv[]);
 bool isItValidInt(char *depth);
-hashtable_t* load_codeDrop(char* codeDropPath);
-bool readFile(char* codeDropPath, hashtable_t* codeDropHash);
-bool game_server (char *argv[], game_t *game_p);
+bool load_codeDrop(hashtable_t* codeDropHash, char* codeDropPath);
+bool game_server (char *argv[], hashStruct_t *allGameInfo);
 void delete(void *data);
 void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
 bool isItValidFloat(char *floatNumber);
 bool load_codeDropPath(code_drop_t * code_drop, char* line, char* token, hashtable_t* codeDropHash);
 static int socket_setup(int GSPort);
-static void handle_socket(int comm_sock, hashtable_t *hash);
-static void sending(int comm_sock, hashtable_t *hash, char *message);
+static void handle_socket(int comm_sock, hashStruct_t *allGameInfo);
+// static void sending(int comm_sock, hashtable_t *hash, char *message);
 void sendIterator(void* key, void* data, void* farg);
 bool handle_stdin();
 void deleteTempHash(void *data);
 
-void FA_LOCATION_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
-// void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
-// void FA_CAPTURE_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
-// void GA_STATUS_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
-void GA_HINT_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
-void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
+// void FA_LOCATION_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
+// // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
+// // void FA_CAPTURE_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
+// // void GA_STATUS_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
+// void GA_HINT_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
+// void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
 
-void GAME_OVER_handler(int comm_sock, hashtable_t *hash);
-void GA_HINT_iterator(void* key, void* data, void* farg);
-bool processing(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted);
+void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo);
+// void GA_HINT_iterator(void* key, void* data, void* farg);
+bool processing(int comm_sock, hashStruct_t *allGameInfo,  char **messageArray, int arraySize);
 int parsingMessages(char* line, char ** messageArray);
 int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
 void freeArray(char** array, int size);
 char *makeRandomHex();
+void deleteHashStruct(hashStruct_t *allGameInfo);
+
+/***Debugging Functions***/
+void printArray(char** array, int size);
 
 
 
@@ -116,19 +126,26 @@ char *makeRandomHex();
 int main(int argc, char *argv[]){
 	
 	srand(time(NULL));
-
-
 	
+	//need if malloc fails messages
+	hashStruct_t *allGameInfo = malloc(sizeof(hashStruct_t));
+	hashtable_t *GAPlayers = hashtable_new(1, NULL, NULL);
+	hashtable_t *FAPlayers = hashtable_new(1, delete, NULL);
+	hashtable_t *codeDrop = hashtable_new(1, delete, NULL);
+
 	game_t *game_p;
 	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(5);
 	
+	allGameInfo->game = game_p;
+	allGameInfo->GA = GAPlayers;
+	allGameInfo->FA = FAPlayers;
+	allGameInfo->CD = codeDrop;
+
 	game_p->level = 1;
 	game_p->timeVal = 0;
 	game_p->rawlogFl = 0;
 	game_p->GSPort = 0;
 	game_p->deadDropRemaining = 0;
-
-	//think of a way to genearlize this function
 
 
 	//Assign Game ID
@@ -137,8 +154,7 @@ int main(int argc, char *argv[]){
 	game_p->gameID = gameID;
 
 	if (!verifyFlags(argc, argv, game_p)){
-		free(game_p->gameID);
-		free(game_p);
+		deleteHashStruct(allGameInfo);
 		exit(1);
 	}
 	printf("%s\n", game_p->gameID);
@@ -147,36 +163,30 @@ int main(int argc, char *argv[]){
 	if ((argc-optind) != 2){
 		printf("Invalid number of arguments\n");
 		printf("Usage: ./gameserver [-log] [-level = 1 or 2] [-time (in Minutes)] codeDropPath GSport\n");
-		free(game_p->gameID);
-		free(game_p);
+		deleteHashStruct(allGameInfo);
 		exit(2);
 	}
 
 	
 
 	if (!verifyPort(argc, argv, game_p)){
-		free(game_p->gameID);
-		free(game_p);
+		deleteHashStruct(allGameInfo);
 		exit(3);
 	}
 
 	if (!verifyFile(argc, argv)){
-		free(game_p->gameID);
-		free(game_p);
+		deleteHashStruct(allGameInfo);
 		exit(4);
 	}
 
 
-	if (!game_server(argv, game_p)) {
+	if (!game_server(argv, allGameInfo)) {
 		printf("something went wrong\n");
-		free(game_p->gameID);
-		free(game_p);
+		deleteHashStruct(allGameInfo);
 		exit(5);
 	}
 
 	printf("%s\n", game_p->gameID);
-	free(game_p->gameID);
-
 
 /***DEBUGGING***/
 	printf("Level: %d\n", game_p->level);
@@ -187,36 +197,32 @@ int main(int argc, char *argv[]){
 /***DEBUGGING***/
 
 
-	free(game_p);
+	deleteHashStruct(allGameInfo);
 	exit(0);
 }
 
-bool game_server (char *argv[], game_t *game_p) {
+bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 	int comm_sock;
 	
-	hashtable_t* codeDropPath;
 	char *arg1 = argv[optind];
 	
 	//if error with loading the codes from file
-	if ((codeDropPath = load_codeDrop(arg1)) == NULL) return false;
+	if (!load_codeDrop(allGameInfo->CD, arg1)) return false;
 	
 	//hashtable print
-	hash_iterate(codeDropPath, hashTable_print, NULL);
+	hash_iterate(allGameInfo->CD, hashTable_print, NULL);
 	
 	//seeing how many codes are left
-	hash_iterate(codeDropPath, numberOfcodeDrops, game_p);
+	hash_iterate(allGameInfo->CD, numberOfcodeDrops, allGameInfo->game);
 
 	//setting up the socket
-	if ((comm_sock = socket_setup(game_p->GSPort)) == -1) {
-		hashtable_delete(codeDropPath);
+	if ((comm_sock = socket_setup(allGameInfo->game->GSPort)) == -1) {
 		return false;
 	}
 
-	hashtable_t *hash = hashtable_new( 1, delete, NULL);
-
 	// Receive datagrams, print them out, read response from term, send it back
 	while (true) {        // loop exits on EOF from stdin
-    
+
 		// for use with select()
 		fd_set rfds;        // set of file descriptors we want to read
 
@@ -233,8 +239,6 @@ bool game_server (char *argv[], game_t *game_p) {
 			// some error occurred
 			perror("select()");
 			close(comm_sock);
-			hashtable_delete(hash);
-			hashtable_delete(codeDropPath);
 			return false;
     
 		} else if (select_response > 0) {
@@ -245,15 +249,13 @@ bool game_server (char *argv[], game_t *game_p) {
 			} 
 
 			if (FD_ISSET(comm_sock, &rfds)) {
-				handle_socket(comm_sock, hash);
+				handle_socket(comm_sock, allGameInfo);
 			}
 			fflush(stdout);
 		}
 	}
-	GAME_OVER_handler(comm_sock, hash);
+	// GAME_OVER_handler(comm_sock, allGameInfo->GA, allGameInfo->FA);
 	close(comm_sock);
-	hashtable_delete(hash);
-	hashtable_delete(codeDropPath);
 	return true;
 }
 
@@ -304,7 +306,7 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 					return false;
 				} else {
 					free(game_p->gameID);
-					char *gameID = malloc(9*sizeof(char));
+					char *gameID = malloc(9 * sizeof(char));
 					sprintf(gameID, "%lX", tempLong);
 					game_p->gameID = gameID;
 				}
@@ -364,7 +366,7 @@ bool verifyFile(int argc, char *argv[]){
 }
 
 bool isItValidInt(char *intNumber){
-	
+
 	int validInt = 0;
 	char * isDigit;
 	
@@ -381,26 +383,9 @@ bool isItValidInt(char *intNumber){
 	return true;
 }
 
-hashtable_t* load_codeDrop(char* codeDropPath) {
-	
-	//creating the new index
-	hashtable_t* codeDropHash = hashtable_new(1, delete, NULL);
-	
-	// checking if memory was allocated for the index
-	if (codeDropHash == NULL) return NULL;
-		
-	// calling a function that reads the file and fill the hashtable
-	// if an improper index file was provided, it will free all the allocated memory andd return false
-	if (!readFile(codeDropPath, codeDropHash)){
-		hashtable_delete(codeDropHash);
-		return NULL;
-	}
-	return codeDropHash;
-}
+bool load_codeDrop(hashtable_t* codeDropHash, char* codeDropPath){
 
-bool readFile(char* codeDropPath, hashtable_t* codeDropHash){
-
-	char * line; // each line in the code drop path file
+	char *line; // each line in the code drop path file
 	FILE *readFrom = fopen(codeDropPath,"r"); //opening the code drop path file					   									   
 	char *token; // different contents in each line (long, lat, or hex code) 
 				 //after truncating the line		 
@@ -468,7 +453,7 @@ bool load_codeDropPath(code_drop_t * code_drop, char* line, char* token, hashtab
 
 
 void delete(void *data){
-	if (data){//if valid
+	if (data != NULL){//if valid
 		free(data);
 	}
 }
@@ -499,7 +484,7 @@ bool isItValidFloat(char *floatNumber){
 /***DEBUGGING***/
 void hashTable_print(void *key, void* data, void* farg){
 	if (key && data){ //if valid
-		printf("%f, %f", ((code_drop_t*)(data))->lng, ((code_drop_t*)(data))->lat);
+		printf("%lf, %lf", ((code_drop_t*)(data))->lng, ((code_drop_t*)(data))->lat);
 		printf(", %s", (char*)(key ));//prints to file, building index file
 
 		printf("\n"); // a new line in the file
@@ -542,16 +527,16 @@ bool handle_stdin(){
 	return true;
 }
 
-static void sending(int comm_sock, hashtable_t *hash, char *message){
-  	sendingInfo_t *sendingInfo_p;
-	sendingInfo_p = malloc(sizeof(sendingInfo_t));
-	sendingInfo_p->comm_sock = comm_sock;
-	sendingInfo_p->message = message;
+// static void sending(int comm_sock, hashtable_t *hash, char *message){
+//   	sendingInfo_t *sendingInfo_p;
+// 	sendingInfo_p = malloc(sizeof(sendingInfo_t));
+// 	sendingInfo_p->comm_sock = comm_sock;
+// 	sendingInfo_p->message = message;
 
-	hash_iterate(hash, sendIterator, sendingInfo_p);
+// 	hash_iterate(hash, sendIterator, sendingInfo_p);
 
-	free(sendingInfo_p);
-}
+// 	free(sendingInfo_p);
+// }
 
 void sendIterator(void* key, void* data, void* farg) {
 	//We will never change this block of code
@@ -573,10 +558,7 @@ void sendIterator(void* key, void* data, void* farg) {
 	}
 }
 
-static void handle_socket(int comm_sock, hashtable_t *hash){
-
-
-
+static void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
     // socket has input ready
 	struct sockaddr_in sender;     // sender of this message
 	struct sockaddr *senderp = (struct sockaddr *) &sender;
@@ -592,133 +574,139 @@ static void handle_socket(int comm_sock, hashtable_t *hash){
 	    // where was it from?
 	    if (sender.sin_family == AF_INET) {
 
-	        /****DEBUGGING***/
-	        char name[100];
-	        sprintf(name, "%s %d", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port));
-	        /****DEBUGGING***/
+	        // /****DEBUGGING***/
+	        // char name[100];
+	        // sprintf(name, "%s %d", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port));
+	        // /****DEBUGGING***/
 
 	        /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
-		    if ((hashtable_find(hash, name)) == NULL){
-		        printf("%s\n", name);
-		        receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
-		        trial->port = sender.sin_port;
-		        trial->inaddr = sender.sin_addr;
-				trial->sin_family = sender.sin_family;
-		        hashtable_insert(hash, name, trial);
-		    }
+		  //   if ((hashtable_find(hash, name)) == NULL){
+		  //       printf("%s\n", name);
+		  //       receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
+		  //       trial->port = sender.sin_port;
+		  //       trial->inaddr = sender.sin_addr;
+				// trial->sin_family = sender.sin_family;
+		  //       hashtable_insert(hash, name, trial);
+		  //   }
 		    /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
 
 		    /****LOGGING***/
-			printf("[%s@%05d]: %s\n", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buf);
+			printf("[%s@%d]: %s\n", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buf);
 			/****LOGGING***/
 
-			//Create array
+			// Create array
 			char** messageArray = malloc(8 *((strlen(buf)+1)/2 + 1) ); 
 
 			if (messageArray == NULL) return false; //checking if it failed to allocate memory 
 			int count = parsingMessages(buf, messageArray);
-			processing(comm_sock, hash, messageArray[0], name);
+			processing(comm_sock, allGameInfo, messageArray, count);
+			/***DEBUGGING***/
+			printArray(messageArray, count);
 			freeArray(messageArray, count);// After printing the results, delete the query
-
-
 	    }
 		fflush(stdout);
 	}
 }
 
-bool processing(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted){
+bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize){
 
-	if(strcmp(buf, "FA_LOCATION") == 0){
-		//return to user
-		FA_LOCATION_handler(comm_sock, hash, buf, thisWillBeDeleted);
-		return true;
-	// } else if(strcmp(buf, FA_NEUTRALIZE) == 0){
+	// if(strcmp(messageArray[0], "FA_LOCATION") == 0){
 	// 	//return to user
-	// 	FA_NEUTRALIZE_handler(comm_sock, hash, buf, thisWillBeDeleted);
-	// } else if(strcmp(buf, FA_CAPTURE) == 0){
-	// 	//People based on Location and Status and Team
-	// 	FA_CAPTURE_handler(comm_sock, hash, buf, thisWillBeDeleted);
-	// } else if(strcmp(buf, GA_STATUS) == 0){
-	// 	//Back to the user
-	// 	GA_STATUS_handler(comm_sock, hash, buf, thisWillBeDeleted);
-	} else if(strcmp(buf, "GA_HINT") == 0){
-		//Either one FA or all on team
-		GA_HINT_handler(comm_sock, hash, buf, thisWillBeDeleted);
-		return true;
-	} else {
-		INVALID_ENTRY_handler(comm_sock, hash, buf, thisWillBeDeleted);
+	// 	FA_LOCATION_handler(comm_sock, allGameInfo, messageArray, arraySize);
+	// 	return true;
+	// // } else if(strcmp(buf, FA_NEUTRALIZE) == 0){
+	// // 	//return to user
+	// // 	FA_NEUTRALIZE_handler(comm_sock, hash, buf, thisWillBeDeleted);
+	// // } else if(strcmp(buf, FA_CAPTURE) == 0){
+	// // 	//People based on Location and Status and Team
+	// // 	FA_CAPTURE_handler(comm_sock, hash, buf, thisWillBeDeleted);
+	// // } else if(strcmp(buf, GA_STATUS) == 0){
+	// // 	//Back to the user
+	// // 	GA_STATUS_handler(comm_sock, hash, buf, thisWillBeDeleted);
+	// } else if(strcmp(messageArray[0], "GA_HINT") == 0){
+	// 	//Either one FA or all on team
+	// 	GA_HINT_handler(comm_sock, hash, messageArray, arraySize);
+	// 	return true;
+	// } else {
+	// 	INVALID_ENTRY_handler(comm_sock, allGameInfo->FA, messageArray, arraySize);
 
-		return false;
-	}
+	// 	return false;
+	// }
 	return true;
 }
 
-void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted){
-	//returns a message to the sender
-	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+// void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char** messageArray, int arraySize){
+// 	//returns a message to the sender
+// 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
-	receiverAddr_t *sendingPlayer;
+// 	receiverAddr_t *sendingPlayer;
 
-	if ((sendingPlayer = (receiverAddr_t *) hashtable_find(hash, thisWillBeDeleted)) != NULL){
-		hashtable_insert(tempHash, thisWillBeDeleted, sendingPlayer); //the key dooesnt matter
-		sending(comm_sock, tempHash, "You sent an invalid message");
-	}
-	hashtable_delete(tempHash);
-}
+// 	if ((sendingPlayer = (receiverAddr_t *) hashtable_find(hash, messageArray[0])) != NULL){
+// 		hashtable_insert(tempHash, messageArray[0], sendingPlayer); //the key dooesnt matter
+// 		sending(comm_sock, tempHash, "You sent an invalid message");
+// 	}
+// 	hashtable_delete(tempHash);
+// }
 
 
-void FA_LOCATION_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted){
-	//returns a message to the sender
-	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+// void FA_LOCATION_handler(int comm_sock, hashtable_t *hash, char** messageArray, int arraySize){
+// 	//returns a message to the sender
+// 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
-	receiverAddr_t *sendingPlayer;
+// 	receiverAddr_t *sendingPlayer;
 
-	if ((sendingPlayer = (receiverAddr_t *) hashtable_find(hash, thisWillBeDeleted)) != NULL){
-		hashtable_insert(tempHash, thisWillBeDeleted, sendingPlayer); //the key dooesnt matter
-		sending(comm_sock, tempHash, "FA_LOCATION received");
-	}
-	hashtable_delete(tempHash);
-}
+// 	if ((sendingPlayer = (receiverAddr_t *) hashtable_find(hash, messageArray[0])) != NULL){
+// 		hashtable_insert(tempHash, messageArray[0], sendingPlayer); //the key dooesnt matter
+// 		sending(comm_sock, tempHash, "FA_LOCATION received");
+// 	}
+// 	hashtable_delete(tempHash);
+// }
+
+// bool FA_LOCATION_validate(char** messageArray, int count){
+// 	// "FA_LOCATION"|char *"gameId"|char * "pebbleId"|char *"teamName"|char * "playerName"|double lat|double long|int statusReq
+
+// }
 
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void GA_STATUS_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
-void GA_HINT_handler(int comm_sock, hashtable_t *hash, char *buf, char* thisWillBeDeleted){
-	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+// void GA_HINT_handler(int comm_sock, hashtable_t *hash, char** messageArray, int arraySize){
+// 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
-	char *Ihab = "129.170.214.160";
+// 	char *Ihab = "129.170.214.160";
 
-	playSel_t *playSel_p = malloc(sizeof(playSel_t));
-	playSel_p->hash = tempHash;
-	playSel_p->param = Ihab;
-	// receiverAddr_t *sendingPlayer;
-	hash_iterate(hash, GA_HINT_iterator, playSel_p);
-	sending(comm_sock, tempHash, "GA_HINT received");
+// 	playSel_t *playSel_p = malloc(sizeof(playSel_t));
+// 	playSel_p->hash = tempHash;
+// 	playSel_p->param = Ihab;
+// 	// receiverAddr_t *sendingPlayer;
+// 	hash_iterate(hash, GA_HINT_iterator, playSel_p);
+// 	sending(comm_sock, tempHash, "GA_HINT received");
 
-	hashtable_delete(tempHash);
-	free(playSel_p);
-}
+// 	hashtable_delete(tempHash);
+// 	free(playSel_p);
+// }
 
-void GA_HINT_iterator(void* key, void* data, void* farg){
-	char IP1[20];
+// void GA_HINT_iterator(void* key, void* data, void* farg){
+// 	char IP1[20];
 
-	playSel_t *playSel_p = (playSel_t *) farg;
-	char *key1 = (char *)key;
+// 	playSel_t *playSel_p = (playSel_t *) farg;
+// 	char *key1 = (char *)key;
 
-	hashtable_t *tempHash = playSel_p->hash;
-	char *param1 = (char *) playSel_p->param;
+// 	hashtable_t *tempHash = playSel_p->hash;
+// 	char *param1 = (char *) playSel_p->param;
 	
 
-	sscanf(key1, "%s *", IP1);
+// 	sscanf(key1, "%s *", IP1);
 
-	if (strcmp(IP1, param1) == 0){
-		hashtable_insert(tempHash, key1, data); //the key dooesnt matter
-	} 
-}
+// 	if (strcmp(IP1, param1) == 0){
+// 		hashtable_insert(tempHash, key1, data); //the key dooesnt matter
+// 	} 
+// }
 
-void GAME_OVER_handler(int comm_sock, hashtable_t *hash){
-	sending(comm_sock, hash, "GAME_OVER. We win. Haha.");
-}
+// void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo){
+	// sending(comm_sock, GA, "GAME_OVER, Guide Agent. We've already won.");
+	// sending(comm_sock, FA, "GAME_OVER, Field Agent. We've already won.");
+// }
 
 void deleteTempHash(void *data){
 	if (data){	//if valid
@@ -760,6 +748,14 @@ void freeArray(char** array, int size){
 	free(array); //delete the the query array
 }
 
+
+void printArray(char** array, int size){
+	for(int i = 0; i < size ; i++){ //looping through the query array
+		printf("Array[%d]: %s\n", (i+1), array[i]);
+	}
+}
+
+
 // After validating the correctness of the keywords, they are added to the query array
 // otherwise, it dellocate the memory created to store the keywords and terminate matching for the query
 int copyValidKeywordsToQueryArray( char ** array, char* word, int count){
@@ -784,3 +780,12 @@ char *makeRandomHex(){
 	return outStr;
 }
 
+void deleteHashStruct(hashStruct_t *allGameInfo){
+	hashtable_delete(allGameInfo->GA);
+	hashtable_delete(allGameInfo->FA);
+	hashtable_delete(allGameInfo->CD);
+
+	free(allGameInfo->game->gameID);
+	free(allGameInfo->game);
+	free(allGameInfo);
+}
