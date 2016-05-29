@@ -88,7 +88,7 @@ typedef struct FAPlayer{
 
 
 /*************** Kinda Global? **********************/
-static const int BUFSIZE = 9000;  
+static const int BUFSIZE = 1024;  
 
 /************* Function Declarations ****************/
 
@@ -117,7 +117,7 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 // void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
 void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo);
 
-int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray);
+int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr_t *playerAddr);
 
 // void sending(int comm_sock, hashtable_t *hash, char *message);
 // void GA_HINT_iterator(void* key, void* data, void* farg);
@@ -165,13 +165,14 @@ int main(int argc, char *argv[]){
 
 	//Assign Game ID
 	char *gameID = makeRandomHex();
+	// printf("GameID 1: %s\n", gameID);
 	game_p->gameID = gameID;
-	
+
 	if (!verifyFlags(argc, argv, game_p)){
 		deleteHashStruct(allGameInfo);
 		exit(1);
 	}
-
+	printf("%s\n", game_p->gameID);
 
 	
 	if ((argc-optind) != 2){
@@ -201,6 +202,15 @@ int main(int argc, char *argv[]){
 	}
 
 	printf("%s\n", game_p->gameID);
+
+/***DEBUGGING***/
+	printf("Level: %d\n", game_p->level);
+	printf("time: %d\n", game_p->timeVal);
+	printf("log: %d\n", game_p->rawlogFl);
+	printf("GSPort: %d\n", game_p->GSPort);
+	printf("deadDropRemaining: %d\n", game_p->deadDropRemaining);
+/***DEBUGGING***/
+
 
 	deleteHashStruct(allGameInfo);
 	exit(0);
@@ -544,25 +554,25 @@ bool handle_stdin(){
 // 	free(sendingInfo_p);
 // }
 
-// void sendIterator(void* key, void* data, void* farg) {
-	// We will never change this block of code
-	// sendingInfo_t *sendingInfo_p = (sendingInfo_t *) farg;
-	// receiverAddr_t *recieverp = (receiverAddr_t *) data;
+void sendIterator(void* key, void* data, void* farg) {
+	//We will never change this block of code
+	sendingInfo_t *sendingInfo_p = (sendingInfo_t *) farg;
+	receiverAddr_t *recieverp = (receiverAddr_t *) data;
 
-	// struct sockaddr_in sender;    
-	// sender.sin_port = recieverp->port;
-	// sender.sin_addr = recieverp->inaddr;
-	// sender.sin_family = recieverp->sin_family;
+	struct sockaddr_in sender;    
+	sender.sin_port = recieverp->port;
+	sender.sin_addr = recieverp->inaddr;
+	sender.sin_family = recieverp->sin_family;
 
-	// struct sockaddr_in them = {0,0,{0}};
-	// struct sockaddr_in *themp = &them;
-    // *themp = sender;
+	struct sockaddr_in them = {0,0,{0}};
+	struct sockaddr_in *themp = &them;
+    *themp = sender;
 
-	// if (sendto(sendingInfo_p->comm_sock, sendingInfo_p->message, strlen(sendingInfo_p->message), 
-		// 0, (struct sockaddr *) themp, sizeof(*themp)) < 0){
-    // printf("it failed to send the datagram\n");
-	// }
-// }
+	if (sendto(sendingInfo_p->comm_sock, sendingInfo_p->message, strlen(sendingInfo_p->message), 
+		0, (struct sockaddr *) themp, sizeof(*themp)) < 0){
+    printf("it failed to send the datagram\n");
+	}
+}
 
 void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
     // socket has input ready
@@ -586,10 +596,10 @@ void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
 	        // /****DEBUGGING***/
 
 	        /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
-		        // receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
-		        // trial->port = sender.sin_port;
-		        // trial->inaddr = sender.sin_addr;
-				// trial->sin_family = sender.sin_family;
+		        receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
+		        trial->port = sender.sin_port;
+		        trial->inaddr = sender.sin_addr;
+				trial->sin_family = sender.sin_family;
 		    /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
 
 		    /****LOGGING***/
@@ -601,10 +611,10 @@ void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
 
 			if (messageArray == NULL) return false; //checking if it failed to allocate memory 
 			int count = parsingMessages(buf, messageArray);
-			processing(comm_sock, allGameInfo, messageArray, count, NULL);
+			processing(comm_sock, allGameInfo, messageArray, count, trial);
 			/***DEBUGGING***/
-			//printArray(messageArray, count);
-			freeArray(messageArray, count);
+			printArray(messageArray, count);
+			freeArray(messageArray, count);// After printing the results, delete the query
 	    }
 		fflush(stdout);
 	}
@@ -660,17 +670,16 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 		return;
 	}
 
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray);
+	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
 
-//modify this later
 	if (gameIDFlag == 2){
 		//add
-		printf("it will added successfully\n");
+		printf("2\n");
 	} else if (gameIDFlag == 0 ){
 		printf("you have there wrong game ID");
 		return;
 	} else {
-		printf("It is there\n");
+		printf("Its properly adding\n");
 	}
 
 
@@ -686,49 +695,47 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 }
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray){
-	// "FA_LOCATION"|char *"gameId"|char * "pebbleId"|char *"teamName"|char * "playerName"|double lat|double long|int statusReq
 	if (strcmp(messageArray[1], "0") == 0){
 		if ((strcmp(messageArray[0], "FA_LOCATION") == 0) || (strcmp(messageArray[0], "GA_STATUS") == 0)){
-			return 1; //can be added
+			return 2;
 		} else {
-			return -1;
+			return 0;
 		}
-	} else if (strcmp(messageArray[1],allGameInfo->game->gameID) == 0){
-		return 0; //valid
+	} else if (messageArray[1] == allGameInfo->game->gameID){
+		return 1;
 	} else {
-		return -1;
+		return 0;
 	}
 }
 
 int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
 	int hexValue = (int)strtol(messageArray[2], NULL, 16);
-	printf()
 	if (hexValue > 65535 || hexValue < 0){
-		return -1;
+		return 0;
 	} else if (messageArray[0][0] == 'G'){
 		//player is GA
-		if ((GAPlayer_t *foundPlayer = hashtable_find(allGameInfo->GA, messageArray[2])) != NULL){
+		if ((FAPlayer_t *foundPlayer = hashtable_find(allGameInfo->GA, messageArray[2])) != NULL){
 			if (foundPlayer->status != 1){
-				printf("Player is known and not idle\n");
-				return 0; //valid
+				printf("Player is known and not captured with a valid AgentID\n");
+				return 1;
 			} else {
-				printf("Player is known and idle\n");
-				return 2; //since we just need to ignore it
+				printf("Player is known and captured with a valid AgentID");
+				return 3; //since we just need to ignore it
 			}
 		}
 		else {
-			printf("Player is not known\n");
+			printf("Player is not known with a valid AgentID\n");
 			//Pebble ID is within the range and is known.
 			return 1;
 		}
-	} else if (messageArray[0][0] == 'F'){ //Player is FA
+	} else { //Player is FA
 		if ((FAPlayer_t *foundPlayer = hashtable_find(allGameInfo->FA, messageArray[2])) != NULL){
 			if (foundPlayer->status != 1){
 				printf("Player is known and not captured with a valid PebbleID\n");
-				return 0;
+				return 1;
 			} else {
 				printf("Player is known and captured with a valid PebbleID");
-				return 2; //since we just need to ignore it
+				return 3; //since we just need to ignore it
 			}
 		}
 		else {
@@ -739,7 +746,50 @@ int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
 	}
 }
 
+bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray, int known){
+	if (messageArray[0][0] == 'G'){
+		//If player is GA
+		//If player is known, else --> then its good.
+		//IF player check team, else --> then its bad.
+		//Then its good.
 
+
+
+		if((FAPlayer_t *foundPlayer = hashtable_find(allGameInfo->GA, messageArray[1])) == NULL){
+			//player is not known
+			return true;
+		} else{
+			//player is known
+			if (foundPlayer->teamName == messageArray[4]){
+				//and team matches
+				return true;
+			}
+			else {
+				//known player, non-matching team
+				return false;
+			}
+		}
+	} else if (messageArray[0][0] == 'F') {
+
+	}
+
+
+
+
+
+
+	if (strcmp(messageArray[2], "0") == 0){
+		if ((strcmp(messageArray[0], "FA_LOCATION") == 0) || (strcmp(messageArray[0], "GA_STATUS") == 0)){
+			return 2;
+		} else {
+			return 0;
+		}
+	} else if (messageArray[1] == allGameInfo->game->gameID){
+		return 1;
+	} else {
+		return 0;
+	}
+}
 
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
