@@ -24,7 +24,7 @@
   "capabilities": [ "location" ], 
   "appjsDebug": "false", 
   "proxyWSSServerURL": "localhost", 
-  "proxyWSSServerPort": 12345, 
+  "proxyWSSServerPort": 58503, 
   "targetServerURL": "localhost", 
-  "targetServerPort": 54321
+  "targetServerPort": 47218
 }
