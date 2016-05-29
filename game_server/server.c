@@ -42,6 +42,7 @@ typedef struct game {
 	int rawlogFl;
 	int GSPort;
 	int deadDropRemaining;
+	int comm_sock;
 } game_t;
 
 typedef struct code_drop {
@@ -56,10 +57,11 @@ typedef struct sendingInfo {
 	char *message;
 } sendingInfo_t;
 
-typedef struct playSel {
-	hashtable_t *hash;
-	void *param;
-} playSel_t;
+typedef struct utility {
+	void *param1;
+	void *param2;
+	void *param3;
+} utility_t;
 
 typedef struct hashStruct{
 	hashtable_t *GA;
@@ -108,20 +110,20 @@ bool load_codeDropPath(code_drop_t * code_drop, char* line, char* token, hashtab
 
 bool game_server (char *argv[], hashStruct_t *allGameInfo);
 int socket_setup(int GSPort);
-void handle_socket(int comm_sock, hashStruct_t *allGameInfo);
+void handle_socket(hashStruct_t *allGameInfo);
 bool handle_stdin();
 
-bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
+bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
 int parsingMessages(char* line, char ** messageArray);
 int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
 
-void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
+void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
 // void GA_STATUS_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
 // void GA_HINT_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
 // void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
-void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo);
+void GAME_OVER_handler(hashStruct_t *allGameInfo);
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray);
 int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray);
@@ -129,13 +131,19 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray);
 bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray);
 bool latHandler(char **messageArray);
 bool lngHandler(char **messageArray);
-bool statusReqHandler(char **messageArray);
+int statusReqHandler(char **messageArray);
 
-// void sending(int comm_sock, hashtable_t *hash, char *message);
+void sending(int comm_sock, hashtable_t *tempHash, char *message);
+
+void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *addr);
+
 // void GA_HINT_iterator(void* key, void* data, void* farg);
 void sendIterator(void* key, void* data, void* farg);
 void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
+void GAMatchingTeam(void *key, void* data, void* farg);
+void FAPlayerNamesIterator(void *key, void* data, void* farg);
+
 
 int makeRandomHex();
 
@@ -143,6 +151,8 @@ void delete(void *data);
 void freeArray(char** array, int size);
 void deleteHashStruct(hashStruct_t *allGameInfo);
 void deleteTempHash(void *data);
+void deleteFAPlayer(void *data);
+void deleteGAPlayer(void *data);
 
 /***Debugging Functions***/
 void printArray(char** array, int size);
@@ -156,8 +166,8 @@ int main(int argc, char *argv[]){
 	
 	//need if malloc fails messages
 	hashStruct_t *allGameInfo = malloc(sizeof(hashStruct_t));
-	hashtable_t *GAPlayers = hashtable_new(1, NULL, NULL);
-	hashtable_t *FAPlayers = hashtable_new(1, delete, NULL);
+	hashtable_t *GAPlayers = hashtable_new(1, deleteGAPlayer, NULL);
+	hashtable_t *FAPlayers = hashtable_new(1, deleteFAPlayer, NULL);
 	hashtable_t *codeDrop = hashtable_new(1, delete, NULL);
 
 	game_t *game_p;
@@ -184,16 +194,12 @@ int main(int argc, char *argv[]){
 		exit(1);
 	}
 
-
-	
 	if ((argc-optind) != 2){
 		printf("Invalid number of arguments\n");
 		printf("Usage: ./gameserver [-log] [-level = 1 or 2] [-time (in Minutes)] codeDropPath GSport\n");
 		deleteHashStruct(allGameInfo);
 		exit(2);
 	}
-
-	
 
 	if (!verifyPort(argc, argv, game_p)){
 		deleteHashStruct(allGameInfo);
@@ -235,6 +241,8 @@ bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 	//setting up the socket
 	if ((comm_sock = socket_setup(allGameInfo->game->GSPort)) == -1) {
 		return false;
+	} else {
+		allGameInfo->game->comm_sock = comm_sock;
 	}
 
 	// Receive datagrams, print them out, read response from term, send it back
@@ -266,12 +274,12 @@ bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 			} 
 
 			if (FD_ISSET(comm_sock, &rfds)) {
-				handle_socket(comm_sock, allGameInfo);
+				handle_socket(allGameInfo);
 			}
 			fflush(stdout);
 		}
 	}
-	// GAME_OVER_handler(comm_sock, allGameInfo->GA, allGameInfo->FA);
+	// GAME_OVER_handler(allGameInfo);
 	close(comm_sock);
 	return true;
 }
@@ -473,6 +481,24 @@ void delete(void *data){
 	}
 }
 
+void deleteGAPlayer(void *data){
+	if (data != NULL){
+		free(((GAPlayer_t *) data)->PlayerName);
+		free(((GAPlayer_t *) data)->TeamName);
+		free(((GAPlayer_t *) data)->addr);
+		free(data);
+	}
+}
+
+void deleteFAPlayer(void *data){
+	if (data != NULL){
+		free(((FAPlayer_t *) data)->PlayerName);
+		free(((FAPlayer_t *) data)->TeamName);
+		free(((FAPlayer_t *) data)->addr);
+		free(data);
+	}
+}
+
 void numberOfcodeDrops(void* key, void* data, void* farg) {
 	((game_t*)(farg))->deadDropRemaining +=1;
 }
@@ -542,44 +568,44 @@ bool handle_stdin(){
 	return true;
 }
 
-// void sending(int comm_sock, hashtable_t *hash, char *message){
-//   	sendingInfo_t *sendingInfo_p;
-// 	sendingInfo_p = malloc(sizeof(sendingInfo_t));
-// 	sendingInfo_p->comm_sock = comm_sock;
-// 	sendingInfo_p->message = message;
+void sending(int comm_sock, hashtable_t *tempHash, char *message){
+  	sendingInfo_t *sendingInfo_p;
+	sendingInfo_p = malloc(sizeof(sendingInfo_t));
+	sendingInfo_p->comm_sock = comm_sock;
+	sendingInfo_p->message = message;
 
-// 	hash_iterate(hash, sendIterator, sendingInfo_p);
+	hash_iterate(tempHash, sendIterator, sendingInfo_p);
 
-// 	free(sendingInfo_p);
-// }
+	free(sendingInfo_p);
+}
 
-// void sendIterator(void* key, void* data, void* farg) {
+void sendIterator(void* key, void* data, void* farg) {
 	// We will never change this block of code
-	// sendingInfo_t *sendingInfo_p = (sendingInfo_t *) farg;
-	// receiverAddr_t *recieverp = (receiverAddr_t *) data;
+	sendingInfo_t *sendingInfo_p = (sendingInfo_t *) farg;
+	receiverAddr_t *recieverp = (receiverAddr_t *) data;
 
-	// struct sockaddr_in sender;    
-	// sender.sin_port = recieverp->port;
-	// sender.sin_addr = recieverp->inaddr;
-	// sender.sin_family = recieverp->sin_family;
+	struct sockaddr_in sender;    
+	sender.sin_port = recieverp->port;
+	sender.sin_addr = recieverp->inaddr;
+	sender.sin_family = recieverp->sin_family;
 
-	// struct sockaddr_in them = {0,0,{0}};
-	// struct sockaddr_in *themp = &them;
-    // *themp = sender;
+	struct sockaddr_in them = {0,0,{0}};
+	struct sockaddr_in *themp = &them;
+    *themp = sender;
 
-	// if (sendto(sendingInfo_p->comm_sock, sendingInfo_p->message, strlen(sendingInfo_p->message), 
-		// 0, (struct sockaddr *) themp, sizeof(*themp)) < 0){
-    // printf("it failed to send the datagram\n");
-	// }
-// }
+	if (sendto(sendingInfo_p->comm_sock, sendingInfo_p->message, strlen(sendingInfo_p->message), 
+		0, (struct sockaddr *) themp, sizeof(*themp)) < 0){
+    printf("it failed to send the datagram\n");
+	}
+}
 
-void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
+void handle_socket(hashStruct_t *allGameInfo){
     // socket has input ready
 	struct sockaddr_in sender;     // sender of this message
 	struct sockaddr *senderp = (struct sockaddr *) &sender;
 	socklen_t senderlen = sizeof(sender);  // must pass address to length
 	char buf[BUFSIZE];        // buffer for reading data from socket
-	int nbytes = recvfrom(comm_sock, buf, BUFSIZE-1, 0, senderp, &senderlen);
+	int nbytes = recvfrom(allGameInfo->game->comm_sock, buf, BUFSIZE-1, 0, senderp, &senderlen);
 	if (nbytes <= 0) {
 	    printf("Empty or improper message was recieved\n");
 	    return ;
@@ -595,10 +621,10 @@ void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
 	        // /****DEBUGGING***/
 
 	        /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
-		        // receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
-		        // trial->port = sender.sin_port;
-		        // trial->inaddr = sender.sin_addr;
-				// trial->sin_family = sender.sin_family;
+		        receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
+		        trial->port = sender.sin_port;
+		        trial->inaddr = sender.sin_addr;
+				trial->sin_family = sender.sin_family;
 		    /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
 
 		    /****LOGGING***/
@@ -608,22 +634,26 @@ void handle_socket(int comm_sock, hashStruct_t *allGameInfo){
 			// Create array
 			char** messageArray = malloc(8 *((strlen(buf)+1)/2 + 1) ); 
 
-			if (messageArray == NULL) return false; //checking if it failed to allocate memory 
+			if (messageArray == NULL){
+				free(trial);
+				return false;
+			} //checking if it failed to allocate memory 
 			int count = parsingMessages(buf, messageArray);
-			processing(comm_sock, allGameInfo, messageArray, count, NULL);
+			processing(allGameInfo, messageArray, count, trial);
 			/***DEBUGGING***/
 			//printArray(messageArray, count);
+			free(trial);
 			freeArray(messageArray, count);
 	    }
 		fflush(stdout);
 	}
 }
 
-bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
+bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 
 	if(strcmp(messageArray[0], "FA_LOCATION") == 0){
 		//return to user
-		FA_LOCATION_handler(comm_sock, allGameInfo, messageArray, arraySize, playerAddr); //these params are a model for the rest
+		FA_LOCATION_handler(allGameInfo, messageArray, arraySize, playerAddr); //these params are a model for the rest
 		return true;
 	// } else if(strcmp(buf, FA_NEUTRALIZE) == 0){
 	// 	//return to user
@@ -660,9 +690,9 @@ bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, i
 // }
 
 
-void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
+void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	//returns a message to the sender
-	int gameIDFlag, playerID;
+	int gameIDFlag, playerIDFlag, statusFlag;
 
 	if (arraySize != 8){
 		printf("FA LOCATION message is of the wrong length.\n");
@@ -671,41 +701,100 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 
 	gameIDFlag = gameIDHandler(allGameInfo, messageArray);
 
-//modify this later
+	//modify this later
 	if (gameIDFlag == 1){
 		//add
-		printf("it will added successfully\n");
+		printf("it will add successfully\n");
 	} else if (gameIDFlag == -1 ){
 		printf("you have there wrong game ID\n");
 	} else {
 		printf("It is there\n");
 	}
-	playerID = playerIDHandler(allGameInfo, messageArray);
-	if (teamNameHandler(allGameInfo, messageArray)) printf("team true\n");
-	else printf("team false\n");
+	playerIDFlag = playerIDHandler(allGameInfo, messageArray);
 
-	if (playerNameHandler(allGameInfo, messageArray)) printf("player true\n");
-	else printf("player false\n");
+
+	if (teamNameHandler(allGameInfo, messageArray)) {
+		printf("team true\n");
+	} else {
+		 printf("team false\n");
+		 return;
+	}
+
+	if (playerNameHandler(allGameInfo, messageArray)) {
+		printf("player true\n");
+	} else {
+		printf("player false\n");
+		return;
+	}
 	
-	if (latHandler(messageArray)) printf("lat true\n");
-	else printf("lat false\n");
+	if (latHandler(messageArray)){
+		printf("lat true\n");
+	} else {
+		printf("lat false\n");
+		return;
+	}
 	
-	if (lngHandler(messageArray)) printf("lng true\n");
-	else printf("lng false\n");
-	
-	if (statusReqHandler(messageArray)) printf("status true\n");
-	else printf("status false\n");
+	if (lngHandler(messageArray)) {
+		printf("lng true\n");
+	} else {
+		printf("lng false\n");
+		return;
+	}
+
+	statusFlag = statusReqHandler(messageArray);
 
 
-	// hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+	if (gameIDFlag == -1){
+		printf("Your gameID is not valid");
+		return;
+	} else if(playerIDFlag == -1){
+		printf("Your playerID is not valid");
+		return;
+	} else if (playerIDFlag == 2){
+		return;
+	} else if ((gameIDFlag == 1) && (playerIDFlag == 1)){
+		addPlayer(allGameInfo, messageArray, playerAddr);
+	} else if ((gameIDFlag == 1) && (playerIDFlag != 1)){
+		printf("Your gameID is not valid");
+		return;
+	} else if ((gameIDFlag != 1) && (playerIDFlag == 1)){
+		printf("Your playerID is not valid");
+		return;
+	} 
 
-	// FAPlayer_t *sendingPlayer;
+	//if they are here, they exist, in our hashtable --> update their info
+	//update the FA's information
+	FAPlayer_t *currentFA = hashtable_find(allGameInfo->FA, messageArray[2]);
+	//1: GameID, does not change
+	//2: PebbleID, does not change
+	//3: TeamName, not allowing them to change teams.
+	//4: PlayerName, can switch it. Hashtable has already been checked for doups.
+	currentFA->PlayerName = messageArray[4];
+	//5 & 6: Lat and Long both should be updated
+	currentFA->lat = atof(messageArray[5]);
+	currentFA->lng = atof(messageArray[6]);
+	//Update Last Contact Time
+	currentFA->lastContact = time(NULL);
+	//Update Player's Address in case of disconnection.
+	currentFA->addr = playerAddr;
 
-	// if ((sendingPlayer = (FAPlayer_t *) hashtable_find(allGameInfo->FA, messageArray[3])) != NULL){ //looking in the hashtable by given PebbleID
-	// 	hashtable_insert(tempHash, messageArray[3], sendingPlayer); //the key dooesnt matter
-	// 	sending(comm_sock, tempHash, "FA_LOCATION received");
-	// }
-	// hashtable_delete(tempHash);
+	if (statusFlag == 1){
+		//send a message back.
+		hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+		hashtable_insert(tempHash, messageArray[3], playerAddr); //the key doesnt matter
+
+		// char GAME_STATUS_message[80];
+		// sprintf(GAME_STATUS_message, "GAME_STATUS|%ld|%s|%d|%d|%d", 
+		// 	allGameInfo->game->gameID, 
+		// 	FIND THE MATCHING TEAM GUIDE ID, 
+		// 	allGameInfo->game->numberOfcodeDrops,
+		// 	FIND NUMBER OF FRIENDLIES,
+		// 	FIND NUMBER OF ENEMIES)
+
+		sending(allGameInfo->game->comm_sock, tempHash, "GAME_STATUS");
+		
+		hashtable_delete(tempHash);
+	}
 }
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray){
@@ -776,11 +865,26 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 	if (messageArray[0][0] == 'G'){
 		GAPlayer_t *foundPlayerGA;
 		if((foundPlayerGA = hashtable_find(allGameInfo->GA, messageArray[2])) == NULL){
-			//player is not known, so they can make whatever team name they want
-			return true;
+			//player is not known
+			//check if that team name already exists
+			utility_t *utility_p = malloc(sizeof(utility_t));
+			int errorFlag = 0;
+
+			utility_p->param1 = &errorFlag;
+			utility_p->param2 = messageArray[3];
+
+			hash_iterate(allGameInfo->FA, GAMatchingTeam, utility_p);
+
+			if(errorFlag == 0){
+				free(utility_p);
+				return true;
+			} else {	
+				free(utility_p);
+				return false;
+			}
 		} else{
 			//player is known, so they need to have a matching team name
-			if (foundPlayerGA->TeamName == messageArray[4]){
+			if ((strcmp(foundPlayerGA->TeamName, messageArray[3])) == 0){
 				//and team matches
 				return true;
 			}
@@ -796,7 +900,7 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 			return true;
 		} else{
 			//player is known, so they need to have a matching team name
-			if (foundPlayerFA->TeamName == messageArray[4]){
+			if ((strcmp(foundPlayerFA->TeamName, messageArray[3])) == 0){
 				//and team matches
 				return true;
 			}
@@ -810,20 +914,53 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 
 //should be after we verify ID
 bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray){
+	if (messageArray[0][0] == 'F'){
+		utility_t *utility_p = malloc(sizeof(utility_t));
+		int errorFlag = 0;
+		utility_p->param1 = &errorFlag;
+		utility_p->param2 = messageArray[4];
+		FAPlayer_t *foundPlayerFA = (FAPlayer_t *) hashtable_find(allGameInfo->FA, messageArray[2]);
+		if((foundPlayerFA == NULL)){
+			//player is not known. 
 
-	if (messageArray[0][0] == 'G'){
-		if(hashtable_find(allGameInfo->GA, messageArray[2]) == NULL){
-			return true;
+			//check for a douplicate name.
+			hash_iterate(allGameInfo->FA, FAPlayerNamesIterator, utility_p);
+
+			//if there is not a douplicate, then True.
+			if(errorFlag == 0){
+				free(utility_p);
+				return true;
+			} else {
+				//if there is a doup, then False.
+				free(utility_p);
+				return false;
+			}
 		} else {
-			return false;
-		}
-	} else { //its FA
-		if(hashtable_find(allGameInfo->FA, messageArray[2]) == NULL){
+			//player is known
+			//make sure that he still has his same name.
+				if ((strcmp(foundPlayerFA->PlayerName, messageArray[4]))== 0) {
+					//player has the same name, already verified no-doups, true
+					free(utility_p);
+					return true;
+			} else {
+				//Changing Player Name, must check for douplicates.
+				hash_iterate(allGameInfo->FA, FAPlayerNamesIterator, utility_p);
+
+				//if there is not a douplicate, then True.
+				if(errorFlag == 0){
+					free(utility_p);
+					return true;
+				} else {
+					//if there is a doup, then False.
+					free(utility_p);
+					return false;
+				}
+			}
+			free(utility_p);
 			return true;
-		} else {
-			return false;
 		}
 	}
+	return true;
 }
 
 bool latHandler(char **messageArray){
@@ -848,24 +985,66 @@ bool lngHandler(char **messageArray){
 	return false;
 }
 
-bool statusReqHandler(char **messageArray){
+int statusReqHandler(char **messageArray){
 	
 	if (messageArray[0][0] == 'G' && isItValidInt(messageArray[5])){
-		if((atoi(messageArray[5])== 0) || (atoi(messageArray[5])== 1)){
-			return true;
+		if((atoi(messageArray[5])== 0)){
+			return 0;
+		} else if ((atoi(messageArray[5])== 1)){
+			return 1;
 		} else{
-			return false;
+			return -1;
 		}
 	} else if (isItValidInt(messageArray[7])){
-		if((atoi(messageArray[7])== 0) || (atoi(messageArray[7])== 1)){
-			printf("hh\n");
-			return true;
-		} else {
-			printf("hhhh\n");
-			return false;
+		if((atoi(messageArray[7])== 0)){
+			return 0;
+		} else if ((atoi(messageArray[7])== 1)){
+			return 1;
+		} else{
+			return -1;
 		}
 	}
-	return false;
+	return -1;
+}
+
+void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *addr){
+	//assuming that everything is verified.
+
+	//only doing the FA side because I dont know what all of fields of the GA player struct are
+	if (messageArray[0][0] == 'F'){
+		FAPlayer_t *newFA = malloc(sizeof(FAPlayer_t));
+		newFA->PlayerName = malloc((strlen(messageArray[4]) + 1));
+		newFA->TeamName = malloc((strlen(messageArray[3]) + 1));
+		receiverAddr_t *addrFA = malloc(sizeof(receiverAddr_t));
+
+		addrFA->port = addr->port;
+		addrFA->inaddr = addr->inaddr;
+		addrFA->sin_family = addr->sin_family;
+
+		strcpy(newFA->PlayerName, messageArray[4]);
+		strcpy(newFA->TeamName, messageArray[3]);
+		newFA->status = 0; //default is 0 (active)
+		newFA->lat = atol(messageArray[5]);
+		newFA->lng = atol(messageArray[6]);
+		newFA->lastContact = time(NULL);
+		hashtable_insert(allGameInfo->FA, messageArray[2], newFA);
+	} else {
+		GAPlayer_t *newGA = malloc(sizeof(GAPlayer_t));
+
+		newGA->PlayerName = malloc((strlen(messageArray[4]) + 1));
+		newGA->TeamName = malloc((strlen(messageArray[3]) + 1));
+		receiverAddr_t *addrGA = malloc(sizeof(receiverAddr_t));
+
+		addrGA->port = addr->port;
+		addrGA->inaddr = addr->inaddr;
+		addrGA->sin_family = addr->sin_family;
+
+		strcpy(newGA->PlayerName, messageArray[4]);
+		strcpy(newGA->TeamName, messageArray[3]);
+		newGA->status = 0; //default is 0 (active)
+		newGA->lastContact = time(NULL);
+		hashtable_insert(allGameInfo->GA, messageArray[2], newGA);
+	}
 }
 
 
@@ -873,42 +1052,42 @@ bool statusReqHandler(char **messageArray){
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void GA_STATUS_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
-// void GA_HINT_handler(int comm_sock, hashtable_t *hash, char** messageArray, int arraySize){
+// void GA_HINT_handler(hashStruct *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 // 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
 // 	char *Ihab = "129.170.214.160";
 
-// 	playSel_t *playSel_p = malloc(sizeof(playSel_t));
-// 	playSel_p->hash = tempHash;
-// 	playSel_p->param = Ihab;
+// 	utility_t *utility_p = malloc(sizeof(utility_t));
+// 	utility_p->param1 = tempHash;
+// 	utility_p->param2 = Ihab;
 // 	// receiverAddr_t *sendingPlayer;
-// 	hash_iterate(hash, GA_HINT_iterator, playSel_p);
-// 	sending(comm_sock, tempHash, "GA_HINT received");
+// 	hash_iterate(allGameInfo->GA, GA_HINT_iterator, utility_p);
+// 	sending(allGameInfo->game->comm_sock, tempHash, "GA_HINT received");
 
 // 	hashtable_delete(tempHash);
-// 	free(playSel_p);
+// 	free(utility_p);
 // }
 
 // void GA_HINT_iterator(void* key, void* data, void* farg){
 // 	char IP1[20];
 
-// 	playSel_t *playSel_p = (playSel_t *) farg;
+// 	utility_t *utility_p = (utility_t *) farg;
 // 	char *key1 = (char *)key;
 
-// 	hashtable_t *tempHash = playSel_p->hash;
-// 	char *param1 = (char *) playSel_p->param;
+// 	hashtable_t *tempHash = utility_p->param1;
+// 	char *passedStr = (char *) utility_p->param2;
 	
 
 // 	sscanf(key1, "%s *", IP1);
 
-// 	if (strcmp(IP1, param1) == 0){
+// 	if (strcmp(IP1, passedStr) == 0){
 // 		hashtable_insert(tempHash, key1, data); //the key dooesnt matter
 // 	} 
 // }
 
-// void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo){
-	// sending(comm_sock, GA, "GAME_OVER, Guide Agent. We've already won.");
-	// sending(comm_sock, FA, "GAME_OVER, Field Agent. We've already won.");
+// void GAME_OVER_handler(hashStruct_t *allGameInfo){
+// 	sending(allGameInfo->game->comm_sock, allGameInfo->GA, "GAME_OVER, Guide Agent. We've already won.");
+// 	sending(allGameInfo->game->comm_sock, allGameInfo->FA, "GAME_OVER, Field Agent. We've already won.");
 // }
 
 void deleteTempHash(void *data){
@@ -987,4 +1166,28 @@ void deleteHashStruct(hashStruct_t *allGameInfo){
 
 	free(allGameInfo->game);
 	free(allGameInfo);
+}
+
+
+void GAMatchingTeam(void *key, void* data, void* farg){ //TEAM NAME
+	utility_t *utility_p = (utility_t *) farg;
+	GAPlayer_t *GAPlayer_p = (GAPlayer_t *) data;
+
+	char *name = (char *) utility_p->param2;
+
+	if ((strcmp(GAPlayer_p->TeamName, name)) == 0){
+		*(int *) utility_p->param1 = 1;
+	}
+}
+
+
+void FAPlayerNamesIterator(void *key, void* data, void* farg){  //PLAYER NAME
+	utility_t *utility_p = (utility_t *) farg;
+	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
+
+	char *name = (char *) utility_p->param2;
+
+	if ((strcmp(FAPlayer_p->PlayerName, name)) == 0){
+		*(int *) utility_p->param1 = 1;
+	}
 }
