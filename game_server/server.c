@@ -124,7 +124,12 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo);
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray);
-int IDHandler(hashStruct_t *allGameInfo, char** messageArray);
+int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray);
+bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray);
+bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray);
+bool latHandler(char **messageArray);
+bool lngHandler(char **messageArray);
+bool statusReqHandler(char **messageArray);
 
 // void sending(int comm_sock, hashtable_t *hash, char *message);
 // void GA_HINT_iterator(void* key, void* data, void* farg);
@@ -475,13 +480,13 @@ void numberOfcodeDrops(void* key, void* data, void* farg) {
 
 bool isItValidFloat(char *floatNumber){
 	
-	float validFloat = 0;
+	double validFloat = 0;
 	char * isDigit;
 	if((isDigit = malloc(strlen(floatNumber) +1)) == NULL) return false; //NULL to check
 	
 	
 	//if depth given is an integer & between 0 and max
-	if(sscanf(floatNumber, "%f%s", &validFloat, isDigit) != 1) {
+	if(sscanf(floatNumber, "%lf%s", &validFloat, isDigit) != 1) {
 		free(isDigit);
 		return false;
 	} else {
@@ -657,7 +662,7 @@ bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, i
 
 void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	//returns a message to the sender
-	int gameIDFlag, pebbleID;
+	int gameIDFlag, playerID;
 
 	if (arraySize != 8){
 		printf("FA LOCATION message is of the wrong length.\n");
@@ -672,12 +677,24 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 		printf("it will added successfully\n");
 	} else if (gameIDFlag == -1 ){
 		printf("you have there wrong game ID\n");
-		return;
 	} else {
 		printf("It is there\n");
 	}
-	pebbleID = IDHandler(allGameInfo, messageArray);
+	playerID = playerIDHandler(allGameInfo, messageArray);
+	if (teamNameHandler(allGameInfo, messageArray)) printf("team true\n");
+	else printf("team false\n");
+
+	if (playerNameHandler(allGameInfo, messageArray)) printf("player true\n");
+	else printf("player false\n");
 	
+	if (latHandler(messageArray)) printf("lat true\n");
+	else printf("lat false\n");
+	
+	if (lngHandler(messageArray)) printf("lng true\n");
+	else printf("lng false\n");
+	
+	if (statusReqHandler(messageArray)) printf("status true\n");
+	else printf("status false\n");
 
 
 	// hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
@@ -706,7 +723,7 @@ int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray){
 	}
 }
 
-int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
+int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray){
 	
 	if (!isItValidInt (messageArray[2])){
 		printf("not hex\n");
@@ -757,12 +774,13 @@ int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
 //should be after we verify ID
 bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 	if (messageArray[0][0] == 'G'){
-		if((GAPlayer_t *foundGAPlayer = hashtable_find(allGameInfo->GA, messageArray[2])) == NULL){
+		GAPlayer_t *foundPlayerGA;
+		if((foundPlayerGA = hashtable_find(allGameInfo->GA, messageArray[2])) == NULL){
 			//player is not known, so they can make whatever team name they want
 			return true;
 		} else{
 			//player is known, so they need to have a matching team name
-			if (foundPlayer->teamName == messageArray[4]){
+			if (foundPlayerGA->TeamName == messageArray[4]){
 				//and team matches
 				return true;
 			}
@@ -772,12 +790,13 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 			}
 		}
 	} else{
-		if((FAPlayer_t *foundFAPlayer = hashtable_find(allGameInfo->FA, messageArray[2])) == NULL){
+		FAPlayer_t *foundPlayerFA;
+		if((foundPlayerFA = hashtable_find(allGameInfo->FA, messageArray[2])) == NULL){
 			//player is not known, so they can make whatever team name they want
 			return true;
 		} else{
 			//player is known, so they need to have a matching team name
-			if (foundPlayer->teamName == messageArray[4]){
+			if (foundPlayerFA->TeamName == messageArray[4]){
 				//and team matches
 				return true;
 			}
@@ -791,10 +810,7 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
 
 //should be after we verify ID
 bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray){
-	//divide into FA/GA
-	//look up player
-	//if NULL -> its good!
-	//else --> its bad :(
+
 	if (messageArray[0][0] == 'G'){
 		if(hashtable_find(allGameInfo->GA, messageArray[2]) == NULL){
 			return true;
@@ -812,36 +828,44 @@ bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray){
 
 bool latHandler(char **messageArray){
 	if (isItValidFloat(messageArray[5])){
-		if (messageArray[5] > 90 || messageArray[5] < -90);
+		if (atol(messageArray[5]) > 90.0 || atol(messageArray[5]) < -90.0) {
 			return false;
-	} else {
-		return true;
+		} else {
+			return true;
+		}
 	}
+		return false;
 }
 
 bool lngHandler(char **messageArray){
-	if (isItValidFloat(messageArray[5])){
-		if (messageArray[5] > 180 || messageArray[5] < -180);
+	if (isItValidFloat(messageArray[6])){
+		if (atol(messageArray[6]) > 180.0 || atol(messageArray[6]) < -180.0) {
 			return false;
-	} else {
-		return true;
+		} else {
+			return true;
+		}
 	}
+	return false;
 }
 
-bool statusReqHandler(char **messageArray, int location){
-	if (messageArray[0][0] == 'G'){
-		if((strcmp(messageArray[5], "0") == 0) || (strcmp(messageArray[5], "1") == 0)){
+bool statusReqHandler(char **messageArray){
+	
+	if (messageArray[0][0] == 'G' && isItValidInt(messageArray[5])){
+		if((atoi(messageArray[5])== 0) || (atoi(messageArray[5])== 1)){
 			return true;
 		} else{
 			return false;
 		}
-	} else {
-		if((strcmp(messageArray[7], "0") == 0) || (strcmp(messageArray[7], "1") == 0)){
+	} else if (isItValidInt(messageArray[7])){
+		if((atoi(messageArray[7])== 0) || (atoi(messageArray[7])== 1)){
+			printf("hh\n");
 			return true;
 		} else {
+			printf("hhhh\n");
 			return false;
 		}
 	}
+	return false;
 }
 
 
