@@ -36,7 +36,7 @@ const struct option longOpts[] = {
 };
 
 typedef struct game {
-	char *gameID; //malloced
+	long gameID; 
 	int level;
 	int timeVal;
 	int rawlogFl;
@@ -85,7 +85,15 @@ typedef struct FAPlayer{
 	receiverAddr_t *addr;
 } FAPlayer_t;
 
-
+typedef struct GAPlayer{
+	char *PlayerName;
+	char *TeamName;
+	int status;
+	double lat;
+	double lng;
+	int lastContact; //unclearType
+	receiverAddr_t *addr;
+} GAPlayer_t;
 
 /*************** Kinda Global? **********************/
 static const int BUFSIZE = 9000;  
@@ -118,6 +126,7 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 void GAME_OVER_handler(int comm_sock, hashStruct_t *allGameInfo);
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray);
+int IDHandler(hashStruct_t *allGameInfo, char** messageArray);
 
 // void sending(int comm_sock, hashtable_t *hash, char *message);
 // void GA_HINT_iterator(void* key, void* data, void* farg);
@@ -125,7 +134,7 @@ void sendIterator(void* key, void* data, void* farg);
 void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
 
-char *makeRandomHex();
+int makeRandomHex();
 
 void delete(void *data);
 void freeArray(char** array, int size);
@@ -164,8 +173,8 @@ int main(int argc, char *argv[]){
 
 
 	//Assign Game ID
-	char *gameID = makeRandomHex();
-	game_p->gameID = gameID;
+	game_p->gameID = makeRandomHex();
+	
 	
 	if (!verifyFlags(argc, argv, game_p)){
 		deleteHashStruct(allGameInfo);
@@ -200,7 +209,7 @@ int main(int argc, char *argv[]){
 		exit(5);
 	}
 
-	printf("%s\n", game_p->gameID);
+	printf("%ld\n", game_p->gameID);
 
 	deleteHashStruct(allGameInfo);
 	exit(0);
@@ -310,10 +319,7 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 					printf("Invalid gameID\n");
 					return false;
 				} else {
-					free(game_p->gameID);
-					char *gameID = malloc(9 * sizeof(char));
-					sprintf(gameID, "%lX", tempLong);
-					game_p->gameID = gameID;
+					game_p->gameID = tempLong;
 				}
 				break;
 
@@ -653,7 +659,7 @@ bool processing(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, i
 
 void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	//returns a message to the sender
-	int gameIDFlag;
+	int gameIDFlag, pebbleID;
 
 	if (arraySize != 8){
 		printf("FA LOCATION message is of the wrong length.\n");
@@ -663,15 +669,17 @@ void FA_LOCATION_handler(int comm_sock, hashStruct_t *allGameInfo, char** messag
 	gameIDFlag = gameIDHandler(allGameInfo, messageArray);
 
 //modify this later
-	if (gameIDFlag == 2){
+	if (gameIDFlag == 1){
 		//add
 		printf("it will added successfully\n");
-	} else if (gameIDFlag == 0 ){
-		printf("you have there wrong game ID");
+	} else if (gameIDFlag == -1 ){
+		printf("you have there wrong game ID\n");
 		return;
 	} else {
 		printf("It is there\n");
 	}
+	pebbleID = IDHandler(allGameInfo, messageArray);
+	
 
 
 	// hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
@@ -693,7 +701,7 @@ int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray){
 		} else {
 			return -1;
 		}
-	} else if (strcmp(messageArray[1],allGameInfo->game->gameID) == 0){
+	} else if (atol(messageArray[1]) == allGameInfo->game->gameID){
 		return 0; //valid
 	} else {
 		return -1;
@@ -701,14 +709,23 @@ int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray){
 }
 
 int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
-	int hexValue = (int)strtol(messageArray[2], NULL, 16);
-	printf()
-	if (hexValue > 65535 || hexValue < 0){
+	
+	if (!isItValidInt (messageArray[2])){
+		printf("not hex\n");
 		return -1;
+	}
+	int hexValue;
+	sscanf(messageArray[2], "%d", &hexValue);
+
+
+	if (hexValue > 65535 || hexValue < 0){
+		printf("not hex\n");
+		return -1;
+		
 	} else if (messageArray[0][0] == 'G'){
-		//player is GA
-		if ((GAPlayer_t *foundPlayer = hashtable_find(allGameInfo->GA, messageArray[2])) != NULL){
-			if (foundPlayer->status != 1){
+		GAPlayer_t *foundPlayerGA;
+		if ((foundPlayerGA = hashtable_find(allGameInfo->GA, messageArray[2])) != NULL){
+			if (foundPlayerGA->status != 1){
 				printf("Player is known and not idle\n");
 				return 0; //valid
 			} else {
@@ -721,17 +738,17 @@ int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
 			//Pebble ID is within the range and is known.
 			return 1;
 		}
-	} else if (messageArray[0][0] == 'F'){ //Player is FA
-		if ((FAPlayer_t *foundPlayer = hashtable_find(allGameInfo->FA, messageArray[2])) != NULL){
-			if (foundPlayer->status != 1){
+	} else { //Player is FA
+		FAPlayer_t *foundPlayerFA;
+		if ((foundPlayerFA = hashtable_find(allGameInfo->FA, messageArray[2])) != NULL){
+			if (foundPlayerFA->status != 1){
 				printf("Player is known and not captured with a valid PebbleID\n");
 				return 0;
 			} else {
 				printf("Player is known and captured with a valid PebbleID");
 				return 2; //since we just need to ignore it
 			}
-		}
-		else {
+		} else {
 			printf("Player is not known with a valid PebbleID\n");
 			//Pebble ID is within the range and is known.
 			return 1;
@@ -846,12 +863,9 @@ int copyValidKeywordsToQueryArray( char ** array, char* word, int count){
 	return count;
 }
 
-char *makeRandomHex(){
-	//REMEMBER TO FREE WHATEVER COMES OUT OF THIS
-	char *outStr = malloc(9 * sizeof(char));
+int makeRandomHex(){
 	int r = rand() %65535;
-	sprintf(outStr, "%X", r);
-	return outStr;
+	return r;
 }
 
 void deleteHashStruct(hashStruct_t *allGameInfo){
@@ -859,7 +873,6 @@ void deleteHashStruct(hashStruct_t *allGameInfo){
 	hashtable_delete(allGameInfo->FA);
 	hashtable_delete(allGameInfo->CD);
 
-	free(allGameInfo->game->gameID);
 	free(allGameInfo->game);
 	free(allGameInfo);
 }
