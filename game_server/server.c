@@ -143,6 +143,7 @@ void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
 void GAMatchingTeam(void *key, void* data, void* farg);
 void FAPlayerNamesIterator(void *key, void* data, void* farg);
+void hashTable_FA_print(void *key, void* data, void* farg);
 
 
 int makeRandomHex();
@@ -522,6 +523,13 @@ bool isItValidFloat(char *floatNumber){
 	return true;
 }
 
+void hashTable_FA_print(void *key, void* data, void* farg){
+	if (key && data){ //if valid
+		printf("Key: %s\n", (char *) key);
+		printf("Team: %s, Player: %s\n", ((FAPlayer_t*)(data))->TeamName, ((FAPlayer_t*)(data))->PlayerName);
+	}
+}
+
 /***DEBUGGING***/
 void hashTable_print(void *key, void* data, void* farg){
 	if (key && data){ //if valid
@@ -769,17 +777,26 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	//2: PebbleID, does not change
 	//3: TeamName, not allowing them to change teams.
 	//4: PlayerName, can switch it. Hashtable has already been checked for doups.
-	currentFA->PlayerName = messageArray[4];
+	free(currentFA->PlayerName);
+	currentFA->PlayerName = malloc(strlen(messageArray[4]) +1);
+	strcpy(currentFA->PlayerName, messageArray[4]);
 	//5 & 6: Lat and Long both should be updated
 	currentFA->lat = atof(messageArray[5]);
 	currentFA->lng = atof(messageArray[6]);
 	//Update Last Contact Time
 	currentFA->lastContact = time(NULL);
 	//Update Player's Address in case of disconnection.
-	currentFA->addr = playerAddr;
+
+
+	currentFA->addr->port = playerAddr->port;
+	currentFA->addr->inaddr = playerAddr->inaddr;
+	currentFA->addr->sin_family = playerAddr->sin_family;
+
+
 
 	if (statusFlag == 1){
 		//send a message back.
+		printf("Status Flag: %d\n", statusFlag);
 		hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 		hashtable_insert(tempHash, messageArray[3], playerAddr); //the key doesnt matter
 
@@ -938,6 +955,7 @@ bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray){
 		} else {
 			//player is known
 			//make sure that he still has his same name.
+			// hash_iterate(allGameInfo->FA, hashTable_FA_print, NULL);
 				if ((strcmp(foundPlayerFA->PlayerName, messageArray[4]))== 0) {
 					//player has the same name, already verified no-doups, true
 					free(utility_p);
@@ -1011,7 +1029,7 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 	//assuming that everything is verified.
 
 	//only doing the FA side because I dont know what all of fields of the GA player struct are
-	if (messageArray[0][0] == 'F'){
+	if ((strcmp(messageArray[0], "FA_LOCATION")) == 0){
 		FAPlayer_t *newFA = malloc(sizeof(FAPlayer_t));
 		newFA->PlayerName = malloc((strlen(messageArray[4]) + 1));
 		newFA->TeamName = malloc((strlen(messageArray[3]) + 1));
@@ -1027,6 +1045,7 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 		newFA->lat = atol(messageArray[5]);
 		newFA->lng = atol(messageArray[6]);
 		newFA->lastContact = time(NULL);
+		newFA->addr = addrFA;
 		hashtable_insert(allGameInfo->FA, messageArray[2], newFA);
 	} else {
 		GAPlayer_t *newGA = malloc(sizeof(GAPlayer_t));
@@ -1043,6 +1062,7 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 		strcpy(newGA->TeamName, messageArray[3]);
 		newGA->status = 0; //default is 0 (active)
 		newGA->lastContact = time(NULL);
+		newGA->addr = addrGA;
 		hashtable_insert(allGameInfo->GA, messageArray[2], newGA);
 	}
 }
