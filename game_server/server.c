@@ -81,7 +81,7 @@ typedef struct FAPlayer{
 	int status;
 	double lat;
 	double lng;
-	int lastContact; //unclearType
+	long int lastContact; //unclearType
 	receiverAddr_t *addr;
 } FAPlayer_t;
 
@@ -89,9 +89,7 @@ typedef struct GAPlayer{
 	char *PlayerName;
 	char *TeamName;
 	int status;
-	double lat;
-	double lng;
-	int lastContact; //unclearType
+	long int lastContact; //unclearType
 	receiverAddr_t *addr;
 } GAPlayer_t;
 
@@ -752,6 +750,96 @@ int IDHandler(hashStruct_t *allGameInfo, char** messageArray){
 			printf("Player is not known with a valid PebbleID\n");
 			//Pebble ID is within the range and is known.
 			return 1;
+		}
+	}
+}
+
+//should be after we verify ID
+bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray){
+	if (messageArray[0][0] == 'G'){
+		if((GAPlayer_t *foundGAPlayer = hashtable_find(allGameInfo->GA, messageArray[2])) == NULL){
+			//player is not known, so they can make whatever team name they want
+			return true;
+		} else{
+			//player is known, so they need to have a matching team name
+			if (foundPlayer->teamName == messageArray[4]){
+				//and team matches
+				return true;
+			}
+			else {
+				//known player, non-matching team
+				return false;
+			}
+		}
+	} else{
+		if((FAPlayer_t *foundFAPlayer = hashtable_find(allGameInfo->FA, messageArray[2])) == NULL){
+			//player is not known, so they can make whatever team name they want
+			return true;
+		} else{
+			//player is known, so they need to have a matching team name
+			if (foundPlayer->teamName == messageArray[4]){
+				//and team matches
+				return true;
+			}
+			else {
+				//known player, non-matching team
+				return false;
+			}
+		}
+	}
+}
+
+//should be after we verify ID
+bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray){
+	//divide into FA/GA
+	//look up player
+	//if NULL -> its good!
+	//else --> its bad :(
+	if (messageArray[0][0] == 'G'){
+		if(hashtable_find(allGameInfo->GA, messageArray[2]) == NULL){
+			return true;
+		} else {
+			return false;
+		}
+	} else { //its FA
+		if(hashtable_find(allGameInfo->FA, messageArray[2]) == NULL){
+			return true;
+		} else {
+			return false;
+		}
+	}
+}
+
+bool latHandler(char **messageArray){
+	if (isItValidFloat(messageArray[5])){
+		if (messageArray[5] > 90 || messageArray[5] < -90);
+			return false;
+	} else {
+		return true;
+	}
+}
+
+bool lngHandler(char **messageArray){
+	if (isItValidFloat(messageArray[5])){
+		if (messageArray[5] > 180 || messageArray[5] < -180);
+			return false;
+	} else {
+		return true;
+	}
+}
+
+bool statusReqHandler(char **messageArray, int location){
+	if (messageArray[0][0] == 'G'){
+		if((strcmp(messageArray[5], "0") == 0) || (strcmp(messageArray[5], "1") == 0)){
+			return true;
+		} else{
+			return false;
+		}
+	} else {
+		if((strcmp(messageArray[7], "0") == 0) || (strcmp(messageArray[7], "1") == 0)){
+			return true;
+		} else {
+			return false;
 		}
 	}
 }
