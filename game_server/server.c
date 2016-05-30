@@ -122,7 +122,7 @@ int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
 void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
-// void GA_STATUS_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
+void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr);
 // void GA_HINT_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
 // void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
 void GAME_OVER_handler(hashStruct_t *allGameInfo);
@@ -684,9 +684,9 @@ bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, r
 	// } else if(strcmp(buf, FA_CAPTURE) == 0){
 	// 	//People based on Location and Status and Team
 	// 	FA_CAPTURE_handler(comm_sock, hash, buf, thisWillBeDeleted);
-	// } else if(strcmp(buf, GA_STATUS) == 0){
-	// 	//Back to the user
-	// 	GA_STATUS_handler(comm_sock, hash, buf, thisWillBeDeleted);
+	} else if(strcmp(messageArray[0], "GA_STATUS") == 0){
+	//Back to the user
+	GA_STATUS_handler(allGameInfo, messageArray, arraySize, playerAddr);
 	// } else if(strcmp(messageArray[0], "GA_HINT") == 0){
 	// 	//Either one FA or all on team
 	// 	GA_HINT_handler(comm_sock, hash, messageArray, arraySize);
@@ -796,18 +796,7 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	if (statusFlag == 1){
 		//send a message back.
 		FAPlayerGameStatusHandler(allGameInfo, currentFA);
-
-
-		// char GAME_STATUS_message[80];
-		// sprintf(GAME_STATUS_message, "GAME_STATUS|%ld|%s|%d|%d|%d", 
-		// 	allGameInfo->game->gameID, 
-		// 	FIND THE MATCHING TEAM GUIDE ID, 
-		// 	allGameInfo->game->numberOfcodeDrops,
-		// 	FIND NUMBER OF FRIENDLIES,
-		// 	FIND NUMBER OF ENEMIES)
-		
 	
-
 	}
 }
 
@@ -886,11 +875,12 @@ int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr
 
 
 	if (hexValue > 65535 || hexValue < 0){
-		GSResponseHandler(allGameInfo, playerAddr, "Not a valid hex code",  "MI_ERROR_INVALID_ID");
+		GSResponseHandler(allGameInfo, playerAddr, "Not a valid GI hex code",  "MI_ERROR_INVALID_ID");
 		return -1;
 		
 	} else if (messageArray[0][0] == 'G'){
 		GAPlayer_t *foundPlayerGA;
+		FAPlayer_t *foundPlayerFA;
 		if ((foundPlayerGA = hashtable_find(allGameInfo->GA, messageArray[2])) != NULL){
 			if (foundPlayerGA->status != 1){
 				printf("Player is known and not idle\n");
@@ -899,8 +889,9 @@ int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr
 				printf("Player is known and idle\n");
 				return 2; //since we just need to ignore it
 			}
-		}
-		else {
+		} else if ((foundPlayerFA = hashtable_find(allGameInfo->FA, messageArray[2])) != NULL) {
+			return 0;
+		} else {
 			printf("Player is not known\n");
 			//Pebble ID is within the range and is known.
 			return 1;
@@ -936,7 +927,7 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray, receiverAddr
 			utility_p->param1 = &errorFlag;
 			utility_p->param2 = messageArray[3];
 
-			hash_iterate(allGameInfo->FA, GAMatchingTeam, utility_p);
+			hash_iterate(allGameInfo->GA, GAMatchingTeam, utility_p);
 
 			free(utility_p);
 			
@@ -1055,16 +1046,20 @@ bool lngHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *
 }
 
 int statusReqHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *allGameInfo){
-	
-	if (messageArray[0][0] == 'G' && isItValidInt(messageArray[5])){
-		if((atoi(messageArray[5])== 0)){
-			return 0;
-		} else if ((atoi(messageArray[5])== 1)){
-			return 1;
-		} else{
-			GSResponseHandler(allGameInfo, playerAddr, "Send either 0 or 1",  "MI_ERROR_INVALID_STATUS_REQ");
-			return -1;
+	if (messageArray[0][0] == 'G'){
+		if(isItValidInt(messageArray[5])) {
+			if((atoi(messageArray[5])== 0)){
+				return 0;
+			} else if ((atoi(messageArray[5])== 1)){
+				return 1;
+			} else{
+				GSResponseHandler(allGameInfo, playerAddr, "Send either 0 or 1",  "MI_ERROR_INVALID_STATUS_REQ");
+				return -1;
+			}
 		}
+		GSResponseHandler(allGameInfo, playerAddr, "Send either 0 or 1",  "MI_ERROR_INVALID_STATUS_REQ");
+		return -1;
+		
 	} else if (isItValidInt(messageArray[7])){
 		if((atoi(messageArray[7])== 0)){
 			return 0;
@@ -1075,6 +1070,7 @@ int statusReqHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruc
 			return -1;
 		}
 	}
+	GSResponseHandler(allGameInfo, playerAddr, "Send either 0 or 1",  "MI_ERROR_INVALID_STATUS_REQ");
 	return -1;
 }
 
@@ -1126,7 +1122,73 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 
 // void FA_NEUTRALIZE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
 // void FA_CAPTURE_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
-// void GA_STATUS_handler(int comm_sock, hashtable_t hash, char *buf, char* thisWillBeDeleted);
+void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr){
+		//returns a message to the sender
+	
+	int gameIDFlag, playerIDFlag, statusFlag;
+
+	if (arraySize != 6){
+		GSResponseHandler(allGameInfo, playerAddr, "you need 6 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
+		return;
+	}
+
+	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
+
+	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
+
+
+	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
+	if (!playerNameHandler(allGameInfo, messageArray, playerAddr)) return;
+
+	statusFlag = statusReqHandler(messageArray,playerAddr, allGameInfo);
+
+
+	if (gameIDFlag == -1){
+		return;
+	} else if(playerIDFlag == -1){
+		return;
+	} else if (playerIDFlag == 2){
+		return;
+	} else if ((gameIDFlag == 1) && (playerIDFlag == 1)){
+		addPlayer(allGameInfo, messageArray, playerAddr);
+	} else if ((gameIDFlag == 1) && (playerIDFlag == 0)){
+		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
+		return;
+	} else if ((gameIDFlag != 1) && (playerIDFlag == 1)){
+		GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
+		return;
+	} 
+
+	// if they are here, they exist, in our hashtable --> update their info
+	// update the FA's information
+	//+APlayer_t *currentFA = hashtable_find(allGameInfo->FA, messageArray[2]);
+	// 1: GameID, does not change
+	// 2: PebbleID, does not change
+	// 3: TeamName, not allowing them to change teams.
+	// 4: PlayerName, can switch it. Hashtable has already been checked for doups.
+	//free(currentFA->PlayerName);
+	//currentFA->PlayerName = malloc(strlen(messageArray[4]) +1);
+	//strcpy(currentFA->PlayerName, messageArray[4]);
+	// 5 & 6: Lat and Long both should be updated
+	// currentFA->lat = atof(messageArray[5]);
+	// currentFA->lng = atof(messageArray[6]);
+	//Update Last Contact Time
+	// currentFA->lastContact = time(NULL);
+	//Update Player's Address in case of disconnection.
+
+
+	// currentFA->addr->port = playerAddr->port;
+	// currentFA->addr->inaddr = playerAddr->inaddr;
+	// currentFA->addr->sin_family = playerAddr->sin_family;
+
+
+
+	// if (statusFlag == 1){
+		//send a message back.
+		// FAPlayerGameStatusHandler(allGameInfo, currentFA);
+	
+	
+}
 // void GA_HINT_handler(hashStruct *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 // 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
