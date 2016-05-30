@@ -1,0 +1,62 @@
+/* Testing file for hashtable.c */
+
+/*File: hashtable.c - a data structure module for a hashtable of (string, data)pairs
+*
+*Lab 3 Question 4 hashtable.c 
+*
+* A module that export three functions: creating a new hashtable, finding nodes in the
+hashtable based on the key (tag) and inserting items into the hashtable if they are linked to a
+*new key	 
+*
+*Ihab Basri, CS50, Dartmouth College, April 24th, 2016*/
+
+####################################################
+#To test my hashtable.c modules, I used a testfile hashtabletest.c that will test the different functions of 
+#hashtable.c and different scenarios where the functions could fail or return NULL.
+#hashtabletest.c is compiled with hashtable.c, Makefile, and "hashtable" header file
+####################################################
+
+###################################################
+#testing the delete function (test1)
+####################################################
+
+[hooby@wildcat ~/cs50/labs/lab3/hashtable_EXTRA]$ valgrind hashtabletest
+==18876== Memcheck, a memory error detector
+==18876== Copyright (C) 2002-2015, and GNU GPL'd, by Julian Seward et al.
+==18876== Using Valgrind-3.11.0 and LibVEX; rerun with -h for copyright info
+==18876== Command: hashtabletest
+==18876==
+==18876== Invalid read of size 8
+==18876==    at 0x400DA3: hashtable_delete_helper (hashtable.c:280)
+==18876==    by 0x400D02: hashtable_delete (hashtable.c:271)
+==18876==    by 0x4007B0: main (hashtabletest.c:26)
+==18876==  Address 0x51f69c0 is 16 bytes inside a block of size 24 free'd
+==18876==    at 0x4C29CF0: free (vg_replace_malloc.c:530)
+==18876==    by 0x400D9E: hashtable_delete_helper (hashtable.c:288)
+==18876==    by 0x400D02: hashtable_delete (hashtable.c:271)
+==18876==    by 0x4007B0: main (hashtabletest.c:26)
+==18876==  Block was alloc'd at
+==18876==    at 0x4C28BF6: malloc (vg_replace_malloc.c:299)
+==18876==    by 0x400A40: list_insert_helper (hashtable.c:163)
+==18876==    by 0x400997: list_insert (hashtable.c:133)
+==18876==    by 0x40093F: hashtable_insert (hashtable.c:115)
+==18876==    by 0x40078F: main (hashtabletest.c:23)
+==18876==
+==18876==
+==18876== HEAP SUMMARY:
+==18876==     in use at exit: 0 bytes in 0 blocks
+==18876==   total heap usage: 32 allocs, 32 frees, 480 bytes allocated
+==18876==
+==18876== All heap blocks were freed -- no leaks are possible
+==18876==
+==18876== For counts of detected and suppressed errors, rerun with: -v
+
+
+
+
+**** as we can see above, all the memory that have been allocated is free now
+	and it will seg fault if you try to use the pointer after deleting it.
+
+****SUCCESS
+
+//end
