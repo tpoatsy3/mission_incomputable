@@ -11,7 +11,7 @@ LLIBS = $L/cs50ds.a
 CLIBS = $C/common.a
 
 CC = gcc
-CFLAGS = -Wall -pedantic -std=c11 -ggdb -I$L -I$C
+CFLAGS = -Wall -pedantic -std=c11 -ggdb -I$L -I$C -lm
 MAKE = make
 
 $(PROG): $(OBJS) $(LLIBS) $(CLIBS)
