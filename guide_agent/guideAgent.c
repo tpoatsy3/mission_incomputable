@@ -83,7 +83,11 @@ void updateAgents(char *message, hashtable_t *agents);
 void updateCodeDrops(char *message, hashtable_t *codeDrops);
 
 static void data_delete(void *data);
+static void fa_delete(void *data);
+static void cd_delete(void *data);
 
+void freeDrops(void *key, void *data, void *farg);
+void freeAgents(void *key, void *data, void *farg);
 void agentPrint(void *key, void *data, void *farg);
 void codeDropsPrint(void *key, void *data, void *farg);
 
@@ -102,7 +106,7 @@ main(const int argc, char *argv[])
 	}
 	
 	int count;
-	unsigned int hexcode;
+	unsigned int hexcode = 0;
 	char *hex;
 	char *flag;
 	bool raw = false;
@@ -153,11 +157,11 @@ main(const int argc, char *argv[])
 
 	// Initialize a hashtable of agents
 	// Where the agent's name is the key and a fieldagent data structure is the data
-	hashtable_t *agents = hashtable_new(50, data_delete, NULL);
+	hashtable_t *agents = hashtable_new(50, fa_delete, NULL);
 
 	// Initialize a hashtable of code drops
 	// Where the code drop's name is the key and a codeDrop data structure is the data
-	hashtable_t *codeDrops = hashtable_new(50, data_delete, NULL);
+	hashtable_t *codeDrops = hashtable_new(50, cd_delete, NULL);
 	
 	// create guide agent struct
 	guideagent_t *thisGuide = malloc(sizeof(guideagent_t)); 
@@ -252,9 +256,12 @@ or a 0 to send your game status without recieving an update\n");
 
 	printf("Made it through what's been written");
 	
-	hashtable_delete(agents);
-	hashtable_delete(codeDrops);
+	if(agents != NULL)
+			hashtable_delete(agents);
+	if(codeDrops != NULL)
+		hashtable_delete(codeDrops);
 
+	free(thisGuide->gameId);
 	free(thisGuide);	
 
 	close(comm_sock);
@@ -347,14 +354,10 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 					}
 					printf("\n");
 					if (strcmp(messageArray[0], "GAME_STATUS") == 0) {
-						//Delete current hashtables
-						hashtable_delete(agents);
-						hashtable_delete(codeDrops);
+						//Empty current hashtables
+						hash_iterate(agents, freeAgents, NULL);
+						hash_iterate(codeDrops, freeDrops, NULL);
 
-						//Create new hashtables with the updated info
-						hashtable_t *agents = hashtable_new(50, data_delete, NULL);
-						hashtable_t *codeDrops = hashtable_new(50, data_delete, NULL);
-						
 						updateGame(messageArray, count, agents, codeDrops, thisGuide);
 						retVal = 1;
 					} else if (strcmp(messageArray[0], "GAME_OVER") == 0) {
@@ -366,8 +369,8 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 							printf("|");
 						}
 						printf("%s\n", messageArray[count-1]);
-						freeArray(messageArray, count);
 						retVal = 3;
+						freeArray(messageArray, count);
 					} else {
 						printf("Recieved invalid OPCODE from game server\n");
 						freeArray(messageArray, count);
@@ -431,6 +434,7 @@ handle_stdin(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 	}
 	free(OPCODE);
 	free(response);
+	free(toParse);
 	return 1;
 }
 
@@ -519,17 +523,13 @@ createStatus(char *response, guideagent_t *thisGuide)
 char *
 createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide)
 {
-	printf("RESPONSE: %s\n", response);
 	char *pebbleId;
 	char *message;
 	if ((pebbleId = strtok(response, "|")) == NULL){ 
-			printf("PEBBLE ID NULL\n");
 			return NULL;
 	}
-	printf("PebbleID: %s\n", pebbleId);	
 	message = strtok(NULL, "|");
 	if (message == NULL) {
-			printf("MESSAGE NULL\n");
 			return NULL;
 	}
 	if (strlen(message) > 140) {
@@ -550,7 +550,7 @@ createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide)
 	char *teamName = thisGuide->teamName;
 	char *name = thisGuide->name;
 	//create the length for the OPCODE
-	int length = 13 + strlen(gameId) + strlen(guideId) + strlen(teamName) + strlen(name)
+	int length = 14 + strlen(gameId) + strlen(guideId) + strlen(teamName) + strlen(name)
 		+ strlen(pebbleId) + strlen(message);
 	char *hint = calloc(length, sizeof(char));
 	char *OPCODE = "GA_HINT";
@@ -570,7 +570,6 @@ createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide)
 	strcat(hint, pipe);
 	strcat(hint, message);
 
-	free(response);
 	printf("%s\n", hint);
 	return hint;
 }
@@ -652,18 +651,29 @@ updateGame (char **messageArray, int count, hashtable_t *agents, hashtable_t *co
 		guideagent_t *thisGuide) 
 {
 	if (strcmp(thisGuide->gameId,"0") == 0) { // Haven't gotten the gameId yet
-		thisGuide->gameId = messageArray[1]; // Set the gameId
+		thisGuide->gameId = malloc(strlen(messageArray[1]) + 1);
+		strcpy(thisGuide->gameId, messageArray[1]); // Set the gameId
 	}
+
 	if (count == 4) {
-		updateAgents(messageArray[2], agents);
-		updateCodeDrops(messageArray[3], codeDrops);
+		char *agentsUpdate = malloc(strlen(messageArray[2]) +1);
+		strcpy(agentsUpdate, messageArray[2]);
+		char *dropsUpdate = malloc(strlen(messageArray[3]) +1);
+		strcpy(dropsUpdate, messageArray[3]);
+		
+		updateAgents(agentsUpdate, agents);
+		updateCodeDrops(dropsUpdate, codeDrops);
 	}
 	if (count == 3) { //There are only codeDrops no agents
-		updateCodeDrops(messageArray[2], codeDrops);
+		char *dropsUpdate = malloc(strlen(messageArray[2]) +1);
+		strcpy(dropsUpdate, messageArray[2]);
+
+		updateCodeDrops(dropsUpdate, codeDrops);
 	}
 	hash_iterate(agents, agentPrint, NULL);
 	hash_iterate(codeDrops, codeDropsPrint, NULL);
-	//freeArray(messageArray, count);
+	
+	freeArray(messageArray, count);
 }
 
 void 
@@ -702,9 +712,14 @@ updateAgents(char *message, hashtable_t *agents)
 			sscanf(agentUpdate[4], "%lf", &lat);
 			sscanf(agentUpdate[5], "%lf", &lng);
 			sscanf(agentUpdate[6], "%lf", &lastcontact);
-			current->team =agentUpdate[1];
-			current->name = agentUpdate[2];
-			current->status = agentUpdate[3];
+			
+			current->team = malloc(strlen(agentUpdate[1]) +1);
+			strcpy(current->team, agentUpdate[1]);
+			current->name = malloc(strlen(agentUpdate[2]) +1);
+			strcpy(current->name, agentUpdate[2]);
+			current->status = malloc(strlen(agentUpdate[3]) +1);
+			strcpy(current->status, agentUpdate[3]);
+			
 			current->lat = lat;
 			current->lng = lng;
 			current->lastcontact = lastcontact;
@@ -712,29 +727,9 @@ updateAgents(char *message, hashtable_t *agents)
 			//insert new fieldagent into the hashtable
 			hashtable_insert(agents, agentUpdate[0], current);
 			
-			/*} else {
-				//The field agent exists so just update its data
-				sscanf(agentUpdate[4], "%lf", &lat);
-				sscanf(agentUpdate[5], "%lf", &lng);
-				sscanf(agentUpdate[6], "%lf", &lastcontact);
-				//Free former before setting new
-				free(current->pebbleID);
-				free(current->team);
-				free(current->status);
-
-				current->pebbleID = agentUpdate[0];
-				current->team =agentUpdate[1];
-				current->status = agentUpdate[3];
-				current->lat = lat;
-				current->lng = lng;
-				current->lastcontact = lastcontact;
-			} */
-			//Free unused pointers
-			free(agentUpdate[4]);
-			free(agentUpdate[5]);
-			free(agentUpdate[6]); 
-		} 
+		} freeArray(agentUpdate, paramCount);
 	}
+	//freeArray(agentsRecieved, agentCount);
 }
 
 void 
@@ -766,44 +761,27 @@ updateCodeDrops(char *message, hashtable_t *codeDrops)
 			double lat;
 			double lng;
 			
-			//if (current == NULL) {
-				//fieldagent doesn't exist, so create new data for it
 			codedrop_t *current = malloc(sizeof(codedrop_t));
 
 			//Use given params to fill in the new field agent	
 			sscanf(dropUpdate[1], "%lf", &lat);
 			sscanf(dropUpdate[2], "%lf", &lng);
-			current->team = dropUpdate[3];
+			current->team = malloc(strlen(dropUpdate[3]) +1);
+			strcpy(current->team, dropUpdate[3]);
 			if (strcmp(current->team, "NONE") == 0)
 				current->status = "active";
 			else
 				current->status = "neutralized";
 			current->lat = lat;
 			current->lng = lng;
-				
+
 			//insert new fieldagent into the hashtable
 			hashtable_insert(codeDrops, dropUpdate[0], current);
 			
-			/*} else {
-				//The code drop  exists so just update its data
-				sscanf(dropUpdate[1], "%lf", &lat);
-				sscanf(dropUpdate[2], "%lf", &lng);
-				//Free what's currently stored before updating
-				free(current->team);
-				free(current->status);
-
-				current->team = dropUpdate[3];
-				if (strcmp(current->team, "NONE") == 0)
-					current->status = "neutralized";
-				else
-					current->status = "active";
-				current->lat = lat;
-				current->lng = lng;
-			} */
-			free(dropUpdate[1]);
-			free(dropUpdate[2]);
-		} 
+		}
+		freeArray(dropUpdate, paramCount);	
 	}
+	freeArray(codeDropsRecieved, dropCount);
 }
 
 /*************** Destructor function ****************/
@@ -814,6 +792,50 @@ data_delete(void *data)
 		free(data);	
 	}
 }
+
+static void
+cd_delete(void *data)
+{
+	if(data != NULL){
+		free(((codedrop_t *) data)->team);
+		free(data);
+	}
+}
+
+static void 
+fa_delete(void *data) 
+{
+	if (data != NULL){
+		free(((fieldagent_t *) data)->name);
+		free(((fieldagent_t *) data)->status);
+		free(((fieldagent_t *) data)->team);
+		free(data);
+	}
+}
+
+void 
+freeDrops(void *key, void *data, void *farg)
+{
+	if (data != NULL){
+		free(((codedrop_t *) data)->status);
+		free(((codedrop_t *) data)->team);
+		free(data);
+	}
+	free(key);
+}	
+
+void 
+freeAgents(void *key, void *data, void *farg)
+{
+	if (data != NULL){
+		free(((fieldagent_t *) data)->name);
+		free(((fieldagent_t *) data)->status);
+		free(((fieldagent_t *) data)->team);
+		free(data);
+	}
+	free(key);
+}
+
 void 
 agentPrint(void *key, void *data, void *farg)
 {
