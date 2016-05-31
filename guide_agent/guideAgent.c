@@ -94,9 +94,9 @@ void freeAgents(void *key, void *data, void *farg);
 void agentPrint(void *key, void *data, void *farg);
 void codeDropsPrint(void *key, void *data, void *farg);
 
-int randomHex();
-bool isValidInt(char *intNumber);
-bool isValidFloat(char *floatNumber);
+void randomHex(char *toBeHex);
+bool isItValidInt(char *intNumber);
+bool isItValidFloat(char *floatNumber);
 
 void logger(FILE *fp, char* message);
 /******************** global types ************************/
@@ -186,7 +186,7 @@ main(const int argc, char *argv[])
 		sprintf(guideId, "%x", hexcode);
 		thisGuide->id = guideId;
 	} else {
-		sprintf(guideId, "%d", randomHex());
+		randomHex(guideId);
 		thisGuide->id = guideId;
 	}
 	thisGuide->teamName = teamName;	
@@ -207,7 +207,7 @@ main(const int argc, char *argv[])
 		if (resp == 1) { // got a GAME_STATUS
 			gameStart = true;
 		} else {
-			sprintf(guideId, "%d", randomHex());
+			randomHex(guideId);
 			thisGuide->id = guideId;
 		}
 	}
@@ -220,7 +220,7 @@ main(const int argc, char *argv[])
 	// list_t *notifications = list_new(data_delete);
 
 	// Initial prompt
-	printf("Enter a hint in the format: playername|message\n\
+	printf("Enter a hint in the format: pebbleID|message\n\
 or a 1 to send your game status and recieve an update\n\
 or a 0 to send your game status without recieving an update\n");
 	
@@ -262,12 +262,13 @@ or a 0 to send your game status without recieving an update\n");
 					break; // exit loop if EOF on stdin
 
 			if (FD_ISSET(comm_sock, &rfds)) {
-				handle_socket(comm_sock, &them, agents, codeDrops, thisGuide, 
-						raw, log);
+				if(handle_socket(comm_sock, &them, agents, codeDrops, thisGuide, 
+						raw, log) == 2)
+					break; // exit loop if GAME_OVER is passed to socket
 			}
 
 			// print a fresh prompt
-			printf("Enter a hint in the format: playername|message\n\
+			printf("Enter a hint in the format: pebbleID|message\n\
 or a 1 to send your game status and recieve an update\n\
 or a 0 to send your game status without recieving an update\n");
 			fflush(stdout);
@@ -281,7 +282,7 @@ or a 0 to send your game status without recieving an update\n");
 
 	free(thisGuide->gameId);
 	free(thisGuide);	
-
+	fclose(log);
 	close(comm_sock);
 	putchar('\n');
 	exit(0);
@@ -334,6 +335,7 @@ socket_setup(char *GShost, int GSport, struct sockaddr_in *themp)
  * return 1 if GAME_STATUS
  * return 2 if GAME_OVER
  * return 3 if GS_RESPONSE
+ * return 4 if GS_RESPONSE is
  */
 
 static int
@@ -665,7 +667,30 @@ copyValidKeywordsToQueryArray( char ** array, char* word, int count)
 
 void
 parseGameEnd (char **messageArray, int count, bool raw, FILE* log) {
-
+	printf("----------GAME OVER----------\n");
+	printf("Game Id %s\n", messageArray[1]);
+	printf("Number of Remaining Code Drops %s\n", messageArray[2]);
+	char *teamsRecieved[50];//Assuming there are no more than 50 teams
+	int teamCount = parsingMessages(messageArray[3], teamsRecieved, ":");
+	//Iterate through all the teams that have been passed
+	for (int i = 0; i < teamCount; i++) {
+		char *teamStats[10];//Should only be 5
+		//Split the game stats into an array split by commas 
+		 int statCount = parsingMessages(teamsRecieved[i], teamStats, ",");
+		 if (statCount != 5) { 
+			printf("Error: Server sent wrong number of stats");
+			return; 
+		 } else {
+			printf("Team Name : %s\n", teamStats[0]);
+			printf("Number of Players : %s\n", teamStats[1]);
+			printf("Number of Captures : %s\n", teamStats[2]);
+			printf("Number Captured : %s\n", teamStats[3]);
+			printf("Number of Drops Neutralized : %s\n", teamStats[4]);
+		 }
+		freeArray(teamStats, statCount);
+	}
+	freeArray(teamsRecieved, teamCount);
+	freeArray(messageArray, count);
 }
 
 void
@@ -722,17 +747,19 @@ updateAgents(char *message, hashtable_t *agents, bool raw, FILE* log)
 			fieldagent_t *current = hashtable_find(agents, agentUpdate[0]);
 
 			//Create temp variables for the non char* parameters
+			int status;
 			float lat;
 			float lng;
 			float lastcontact;
 			
 			if (current == NULL) {
 				//Check Params
-				if(isValidFloat(agentUpdate[4]) && isValidFloat(agentUpdate[5]) &&
-						isValidFloat(agentUpdate[6])) {
+				if(isItValidInt(agentUpdate[3]) && isItValidFloat(agentUpdate[4]) && 
+						isItValidFloat(agentUpdate[5]) && isItValidFloat(agentUpdate[6])) {
+					sscanf(agentUpdate[3], "%d", &status);
 					sscanf(agentUpdate[4], "%f", &lat);
 					sscanf(agentUpdate[5], "%f", &lng);
-					sscanf(agentUpdate[6], "%f", &lastcontact);
+					sscanf(agentUpdate[6], "%f", &lastcontact);	
 				
 					//fieldagent doesn't exist, so create new data for it
 					current = malloc(sizeof(fieldagent_t));
@@ -743,15 +770,23 @@ updateAgents(char *message, hashtable_t *agents, bool raw, FILE* log)
 					strcpy(current->team, agentUpdate[1]);
 					current->name = malloc(strlen(agentUpdate[2]) +1);
 					strcpy(current->name, agentUpdate[2]);
-					current->status = malloc(strlen(agentUpdate[3]) +1);
-					strcpy(current->status, agentUpdate[3]);
-			
+					//Add status interpretation	
+					if (status != 1)
+						current->status="active";
+					else 
+						current->status="captured";
+					
 					current->lat = lat;
 					current->lng = lng;
 					current->lastcontact = lastcontact;
 					
 					//insert new fieldagent into the hashtable
 					hashtable_insert(agents, agentUpdate[0], current);
+					
+					char *toLog = malloc(strlen(agentUpdate[2]) + 13);
+					sprintf(toLog, "Agent %s added", agentUpdate[2]);
+					logger(log, toLog);
+					free(toLog);
 				} else {
 					printf("Error: Incorrectly formatted parameters for Agent '%s'\n", 
 						agentUpdate[2]);
@@ -759,24 +794,37 @@ updateAgents(char *message, hashtable_t *agents, bool raw, FILE* log)
 			
 			} else {
 				// Check params
-				if(isValidFloat(agentUpdate[4]) && isValidFloat(agentUpdate[5]) &&
-						isValidFloat(agentUpdate[6])) {
+				if(isItValidInt(agentUpdate[3]) && isItValidFloat(agentUpdate[4]) && 
+						isItValidFloat(agentUpdate[5]) && isItValidFloat(agentUpdate[6])) {
+					sscanf(agentUpdate[3], "%d", &status);
 					sscanf(agentUpdate[4], "%f", &lat);
 					sscanf(agentUpdate[5], "%f", &lng);
-					sscanf(agentUpdate[6], "%f", &lastcontact);
-					
+					sscanf(agentUpdate[6], "%f", &lastcontact);	
 					free(current->name);
-					free(current->status);
 					free(current->team);
-			
+					
+					bool wasActive = false;
+					if (strcmp(current->status, "active") == 0)
+						wasActive = true;	
 			
 					current->team = malloc(strlen(agentUpdate[1]) +1);
 					strcpy(current->team, agentUpdate[1]);
 					current->name = malloc(strlen(agentUpdate[2]) +1);
 					strcpy(current->name, agentUpdate[2]);
-					current->status = malloc(strlen(agentUpdate[3]) +1);
-					strcpy(current->status, agentUpdate[3]);
-			
+					
+					//Add status interpretation	
+					if (status != 1)
+						current->status="active";
+					else { 
+						current->status="captured";
+						if(wasActive){
+							char *toLog = malloc(strlen(agentUpdate[2]) + 16);
+							sprintf(toLog, "Agent %s captured", agentUpdate[2]);
+							logger(log, toLog);
+							free(toLog);
+						}
+					}
+	
 					current->lat = lat;
 					current->lng = lng;
 					current->lastcontact = lastcontact;
@@ -822,7 +870,7 @@ updateCodeDrops(char *message, hashtable_t *codeDrops, bool raw, FILE* log)
 				current = malloc(sizeof(codedrop_t));
 
 				//Use given params to fill in the new field agent	
-				if(isValidFloat(dropUpdate[1]) && isValidFloat(dropUpdate[2])) {
+				if(isItValidFloat(dropUpdate[1]) && isItValidFloat(dropUpdate[2])) {
 					sscanf(dropUpdate[1], "%f", &lat);
 					sscanf(dropUpdate[2], "%f", &lng);
 				
@@ -844,7 +892,7 @@ updateCodeDrops(char *message, hashtable_t *codeDrops, bool raw, FILE* log)
 
 			} else {
 				//Use given params to fill in the new field agent	
-				if(isValidFloat(dropUpdate[1]) && isValidFloat(dropUpdate[2])) {
+				if(isItValidFloat(dropUpdate[1]) && isItValidFloat(dropUpdate[2])) {
 					sscanf(dropUpdate[1], "%f", &lat);
 					sscanf(dropUpdate[2], "%f", &lng);
 					bool wasActive = false;
@@ -859,8 +907,12 @@ updateCodeDrops(char *message, hashtable_t *codeDrops, bool raw, FILE* log)
 						current->status = "active";
 					else {
 						current->status = "neutralized";
-						if (wasActive && !raw)
-							logger(log, "Code Drop %s was neutralized");
+						if (wasActive) {
+							char *toLog = malloc(strlen(dropUpdate[0]) + 23);
+							sprintf(toLog, "Code Drop %s neutralized", dropUpdate[0]);
+							logger(log, toLog);
+							free(toLog);
+						}
 					}
 					current->lat = lat;
 					current->lng = lng;
@@ -892,7 +944,6 @@ fa_delete(void *data)
 {
 	if (data != NULL){
 		free(((fieldagent_t *) data)->name);
-		free(((fieldagent_t *) data)->status);
 		free(((fieldagent_t *) data)->team);
 		free(data);
 	}
@@ -902,7 +953,6 @@ void
 freeDrops(void *key, void *data, void *farg)
 {
 	if (data != NULL){
-		//free(((codedrop_t *) data)->status);
 		free(((codedrop_t *) data)->team);
 		free(data);
 	}
@@ -948,20 +998,23 @@ codeDropsPrint(void *key, void *data, void *farg)
 	printf("Team: %s\n\n", current->team);
 
 }
-
-int
-randomHex()
+void 
+randomHex(char *toBeHex)
 {
 	time_t t;
-	   
+	char temp[9]; //Length of the hex
 	/* Intializes random number generator */
 	srand((unsigned) time(&t));
-	
-	return rand() % 65536;
+    const char *hex_digits = "0123456789ABCDEF";
+    for(int i = 0; i < 8; i ++) {
+		temp[i] = hex_digits[rand() % 16];
+	}
+	temp[8] = '\0';
+	strcpy(toBeHex, temp);
 }
 
 bool 
-isValidInt(char *intNumber)
+isItValidInt(char *intNumber)
 {
 
 	int validInt = 0;
@@ -980,7 +1033,7 @@ isValidInt(char *intNumber)
 	return true;
 }
 bool 
-isValidFloat(char *floatNumber){	
+isItValidFloat(char *floatNumber){	
 	double validFloat = 0;
 	char * isDigit;
 	if((isDigit = malloc(strlen(floatNumber) +1)) == NULL) return false; //NULL to check

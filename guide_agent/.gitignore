@@ -1,3 +1,4 @@
 *.o
 client-server-udp-select
 guideAgent
+log
