@@ -2,112 +2,133 @@
 Mission Incomputable!
 Team Topaz
 
-server.c - The file for the game server
-
-This is the most recent copy as of Tuesday at 1 am
+gameserver.c - The game server application coordinates one and only one game each times it runs.
+it interacts with the field agent through pebble and proxy (UDP) and the guide agent though UDP 
+communication
 
 May, 2016
 Ihab Basri, Ted Poatsy
 */
 
 #include <stdio.h>
-#include <string.h>
-#include <stdbool.h>
 #include <stdlib.h>
-#include <getopt.h>
-#include <errno.h>
+#include <string.h>
+#include <strings.h>	
+#include <stdbool.h>
+#include <getopt.h> //for options
+
+
+#include <errno.h> //for socket
 #include <sys/stat.h>
 #include <unistd.h>
-#include "hashtable/hashtable.h"
-#include "file.h"
-#include <strings.h>	      
-#include <arpa/inet.h>	      
 #include <sys/select.h>	  
 #include <sys/socket.h>
 #include <netinet/in.h>
-#include <time.h>
-#include <math.h>
+#include <arpa/inet.h>	 
 
-#define R 6371
-#define TO_RAD (3.1415926536 / 180)
+#include "file.h" // to read lines from files 
+#include <time.h>  // using time functions
+#include <math.h> // for equations
+
+//to create a list, our list structures had some bags
+// we are using one row though in the hashtable to create a one dimentional list
+#include "hashtable/hashtable.h"
+
 
 /************* Function Declarations ****************/
+
+// for the command options (optand)
 const struct option longOpts[] = {
-	{ "level", required_argument, 0, 'l'},
-	{ "time", required_argument, 0, 't'},
-	{ "rawlog", no_argument, 0, 'r'},
-	{ "game", required_argument, 0, 'g'},
+	{ "level", required_argument, 0, 'l'}, //level of the game
+	{ "time", required_argument, 0, 't'}, //duration of the game
+	{ "log", no_argument, 0, 'r'}, // for logging
+	{ "game", required_argument, 0, 'g'}, // for gameID
 	{ 0, 0, 0, 0}
 };
 
+// game statistics and important flags
 typedef struct game {
 	char * gameID; 
-	int level;
-	int timeVal;
-	int rawlogFl;
-	int GSPort;
-	int deadDropRemaining;
-	int comm_sock;
+	int level; //level 3 flag
+	int timeVal; //time option flag
+	int rawlogFl; //raw logging flag
+	int GSPort; //game port
+	int deadDropRemaining; //number of deadDrop remaining
+	int comm_sock; //socket
+	long int startingTime; //start of the game (reference)
+	long int elapsedTime; //duration of the game
+	FILE *fp; //logging file
 } game_t;
 
+//code drop information
 typedef struct code_drop {
-	double lng;
-	double lat;
-	int status; // 0 means not neutralized
-	char *team;
+	double lng; //longitude
+	double lat; //latitude
+	int status; //neutralization status (0 means active)
+	char *team; // neutralizing team
 } code_drop_t;
 
+//a struct that combines the socket and the sending message to use with iterators
 typedef struct sendingInfo {
 	int comm_sock;
 	char *message;
 } sendingInfo_t;
 
+
+// a general struct that can be used to get information into and out of iterators
+// named utility because it is our "utility tool" that we can use for so many different
+// combinations of information
 typedef struct utility {
 	void *param1;
 	void *param2;
 	void *param3;
 	void *param4;
+	void *param5;
 } utility_t;
 
+//The master information struct
 typedef struct hashStruct{
-	hashtable_t *GA;
-	hashtable_t *FA;
-	hashtable_t *temp;
-	hashtable_t *CD;
-	game_t *game;
+	hashtable_t *GA; // all guide agents
+	hashtable_t *FA; // all field agents
+	hashtable_t *CD; // all code drops
+	game_t *game; // current game info
 } hashStruct_t;
 
+
+// combining the receiver address
 typedef struct receiverAddr{
-	in_port_t port;
-	struct in_addr inaddr;
+	in_port_t port; //port
+	struct in_addr inaddr; // IP address
 	int sin_family;
 }receiverAddr_t;
 
+// a struct that combines all the player info
 typedef struct FAPlayer{
 	char *PlayerName;
 	char *TeamName;
-	int status;
-	double lat;
-	double lng;
-	long int lastContact; //unclearType
-	receiverAddr_t *addr;
-	int capturedPlayers;
-	int Neutralized;
-	long int capturingTime;
-	char *capturingHexCode;
+	int status; // active (0), capturing(3), captured(1), maybe captured(2)
+	double lat; //latitude
+	double lng; //longitude
+	long int lastContact; //time since last contact
+	receiverAddr_t *addr; // contact info
+	int capturedPlayers; // enemy players captured by this player
+	int Neutralized; //codeDrop neutralized by this player
+	long int capturingTime; //time when this player was targeted
+	char *capturingHexCode; //random hex code assigned upon being targeted
 } FAPlayer_t;
 
 typedef struct GAPlayer{
 	char *PlayerName;
 	char *TeamName;
-	int status;
-	long int lastContact; //unclearType
-	receiverAddr_t *addr;
+	int status; //0 is active, 1 is inactive
+	long int lastContact; //time since last contact
+	receiverAddr_t *addr; //player's contact information
 } GAPlayer_t;
 
-/*************** Kinda Global? **********************/
+/*************** Constants**********************/
 static const int BUFSIZE = 9000;  
-
+#define R 6371 //earth radium
+#define TO_RAD (3.1415926536 / 180) //To convert into radion
 /************* Function Declarations ****************/
 
 bool verifyFlags(int argc, char *argv[], game_t *game_p);
@@ -131,10 +152,11 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
 void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr);
 void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr);
-// void GA_HINT_handler(int comm_sock, hashtable_t *hash,  char **messageArray, int arraySize);
-// void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char **messageArray, int arraySize);
+void GA_HINT_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr);
+void INVALID_ENTRY_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr);
 void GAME_OVER_handler(hashStruct_t *allGameInfo);
 void GAPlayerGameStatusHandler(hashStruct_t *allGameInfo, GAPlayer_t *currentGA);
+void GAPlayerGameStatusHandlerThree(hashStruct_t *allGameInfo, GAPlayer_t *currentGA);
 
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr_t * playerAddr);
 int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr_t * playerAddr);
@@ -146,14 +168,13 @@ bool lngHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *
 int statusReqHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *allGameInfo);
 bool validateHexInt(int hexValue, receiverAddr_t *playerAddr, hashStruct_t *allGameInfo);
 bool codeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t *allGameInfo);
-
-
+bool messageCodeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t *allGameInfo);
+void logger(FILE *fp,char* message);
 
 void sending(int comm_sock, hashtable_t *tempHash, char *message);
 
 void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *addr);
 
-// void GA_HINT_iterator(void* key, void* data, void* farg);
 void sendIterator(void* key, void* data, void* farg);
 void hashTable_print(void *key, void* data, void* farg);
 void numberOfcodeDrops(void* key, void* data, void* farg);
@@ -177,6 +198,13 @@ void CDGameStatusFriendlyIterator(void *key, void* data, void* farg);
 void captureProximityIterator(void *key, void* data, void* farg);
 void GS_CAPTURE_IDIterator(void *key, void* data, void* farg);
 void findCapturedPlayer(void *key, void* data, void* farg);
+void GA_HINTIterator(void *key, void* data, void* farg);
+void FAMatchingTeam(void *key, void* data, void* farg);
+void GAGameStatusFriendlyIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusCodeIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusCodeHashIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusEnemyIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusEnemyHashIteratorThree(void *key, void* data, void* farg);
 
 double dist(double th1, double ph1, double th2, double ph2);
 
@@ -188,65 +216,75 @@ void deleteHashStruct(hashStruct_t *allGameInfo);
 void deleteTempHash(void *data);
 void deleteFAPlayer(void *data);
 void deleteGAPlayer(void *data);
-
+void deleteCodeDrop(void *data);
 /***Debugging Functions***/
 void printArray(char** array, int size);
-
-
 
 
 int main(int argc, char *argv[]){
 	
 	srand(time(NULL));
+
+	char hostname[1024];
+	hostname[1023] = '\0';
+	gethostname(hostname, 1023);
+	printf("Hostname: %s\n", hostname);
 	
 	//need if malloc fails messages
-	hashStruct_t *allGameInfo = malloc(sizeof(hashStruct_t));
+	hashStruct_t *allGameInfo;
+	if ((allGameInfo = malloc(sizeof(hashStruct_t))) == NULL) exit(11);
 	hashtable_t *GAPlayers = hashtable_new(1, deleteGAPlayer, NULL);
 	hashtable_t *FAPlayers = hashtable_new(1, deleteFAPlayer, NULL);
-	hashtable_t *codeDrop = hashtable_new(1, delete, NULL);
+	hashtable_t *codeDrop = hashtable_new(1, deleteCodeDrop, NULL);
 
 	game_t *game_p;
-	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(5);
-	
+	if ((game_p = malloc(sizeof(game_t))) == NULL) exit(11);
+
+	//populating the master game structure
 	allGameInfo->game = game_p;
 	allGameInfo->GA = GAPlayers;
 	allGameInfo->FA = FAPlayers;
 	allGameInfo->CD = codeDrop;
 
+	//initializing the game values with defaults
 	game_p->level = 1;
 	game_p->timeVal = 0;
 	game_p->rawlogFl = 0;
 	game_p->GSPort = 0;
 	game_p->deadDropRemaining = 0;
+	game_p->startingTime = time(NULL);
 
 
 	//Assign Game ID
 	game_p->gameID = makeRandomHex();
 	
-	
+	// Verifying and setting the values input with flags
 	if (!verifyFlags(argc, argv, game_p)){
 		deleteHashStruct(allGameInfo);
 		exit(1);
 	}
 
+	// Verifying the number of arguments
 	if ((argc-optind) != 2){
 		printf("Invalid number of arguments\n");
-		printf("Usage: ./gameserver [-log] [-level = 1 or 2] [-time (in Minutes)] codeDropPath GSport\n");
+		printf("Usage: ./gameserver [--log] [--level = 1 or 3] [--time (in Minutes)] codeDropPath GSport\n");
 		deleteHashStruct(allGameInfo);
 		exit(2);
 	}
 
+	// Verifying that the port that is given is valid
 	if (!verifyPort(argc, argv, game_p)){
 		deleteHashStruct(allGameInfo);
 		exit(3);
 	}
 
+	// Verifying that the given codeDrop file exists and is readable
 	if (!verifyFile(argc, argv)){
 		deleteHashStruct(allGameInfo);
 		exit(4);
 	}
 
-
+	// Starting the process of the game
 	if (!game_server(argv, allGameInfo)) {
 		printf("something went wrong\n");
 		deleteHashStruct(allGameInfo);
@@ -254,12 +292,14 @@ int main(int argc, char *argv[]){
 	}
 
 	deleteHashStruct(allGameInfo);
+	//Successfully exiting
 	exit(0);
 }
 
 bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 	int comm_sock;
-	
+	char logText[1000];
+	char logText2[1000];
 	char *arg1 = argv[optind];
 	
 	//if error with loading the codes from file
@@ -276,21 +316,39 @@ bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 		return false;
 	} else {
 		allGameInfo->game->comm_sock = comm_sock;
-	}
+	} 
 
+    sprintf(logText, "log/gameserver%ld.log", time(NULL) );
+	
+	if ((allGameInfo->game->fp=fopen(logText, "a")) == NULL) {
+		return false;
+	} 
+	logger(allGameInfo->game->fp, "Game Started");
+	logText[999] = '\0';
+	gethostname(logText, 999);
+	sprintf(logText2, "Host: %s", logText);
+	logger(allGameInfo->game->fp, logText2);
+	sprintf(logText2, "Port: %d", allGameInfo->game->GSPort);
+	logger(allGameInfo->game->fp, logText2);
+	
 	// Receive datagrams, print them out, read response from term, send it back
 	while (true) {        // loop exits on EOF from stdin
-
 		// for use with select()
 		fd_set rfds;        // set of file descriptors we want to read
+		allGameInfo->game->elapsedTime = time(NULL) - allGameInfo->game->startingTime;
+		if (allGameInfo->game->elapsedTime >= allGameInfo->game->timeVal && allGameInfo->game->timeVal != 0) break;
+		else if (allGameInfo->game->deadDropRemaining == 0) break;
 
 		// Watch stdin (fd 0) and the UDP socket to see when either has input.
 		FD_ZERO(&rfds);
 		FD_SET(0, &rfds);       // stdin
 		FD_SET(comm_sock, &rfds); // the UDP socket
 		int nfds = comm_sock+1;   // highest-numbered fd in rfds
-
-		int select_response = select(nfds, &rfds, NULL, NULL, NULL);
+		struct timeval timeout;   // how long we're willing to wait
+		const struct timeval onesec = {1,0};   // five seconds
+    
+		timeout = onesec;
+		int select_response = select(nfds, &rfds, NULL, NULL, &timeout);
 		// note: 'rfds' updated, and value of 'timeout' is now undefined
     
 		if (select_response < 0) {
@@ -298,6 +356,7 @@ bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 			perror("select()");
 			close(comm_sock);
 			return false;
+			
     
 		} else if (select_response > 0) {
 			// some data is ready on either source, or both
@@ -310,17 +369,22 @@ bool game_server (char *argv[], hashStruct_t *allGameInfo) {
 				handle_socket(allGameInfo);
 			}
 			fflush(stdout);
+		} else if (select_response == 0) {
+			fflush(stdout);
 		}
 	}
+
+	//sending end game message and cleaning up used memory
 	GAME_OVER_handler(allGameInfo);
+	logger(allGameInfo->game->fp,"Game Over");
 	close(comm_sock);
+	fclose(allGameInfo->game->fp);
 	return true;
 }
 
 
 bool verifyFlags(int argc, char *argv[], game_t *game_p){
-
-	int option = 0;	
+	int option = 0;
 	int tempInt;
 	while  ((option = getopt_long (argc, argv, "+l:t:rg:", longOpts, NULL)) != -1){
 		switch (option){
@@ -330,9 +394,14 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 					return false;
 				} 
 				tempInt = atoi(optarg);
-				if (tempInt > 0 && tempInt < 3){ //might change to 4
-					game_p->level = tempInt;
-					break;
+				if (tempInt > 0 && tempInt < 4){ //might change to 4
+					if (tempInt == 2){
+						printf("I'm sorry. Currently level 2 is not supported.\n");
+						return false;
+					} else {
+						game_p->level = tempInt;
+						break;
+					}
  				} else {
  					printf("Level Argument is not in range: %d\n", tempInt);
 					return false;
@@ -344,7 +413,7 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 				} 
 				tempInt = atoi(optarg);
 				if (tempInt >= 0){ 
-					game_p->timeVal = tempInt;
+					game_p->timeVal = tempInt * 60;
 					break;
  				} else {
  					printf("Time Argument is not in range\n");
@@ -352,13 +421,17 @@ bool verifyFlags(int argc, char *argv[], game_t *game_p){
 				}
 
 			case 'r':
+				if (strcmp(optarg, "raw") == 0) {
 				game_p->rawlogFl = 1;
 				break;
+				}
+				printf("Wrong flag argument\n");
+				return false;
 
 			case 'g':
 				//verify that the input is an integer between 1 and 4294967295
 				free(game_p->gameID);
-				game_p->gameID = malloc(10);
+				if ((game_p->gameID = malloc(10)) == NULL) exit(11);
 				strcpy(game_p->gameID, optarg);
 				if ((strlen(optarg) > 9) || (strlen(optarg) < 4)){
 					printf("Invalid gameID\n");
@@ -424,7 +497,7 @@ bool isItValidInt(char *intNumber){
 	int validInt = 0;
 	char * isDigit;
 	
-	if ((isDigit = malloc(strlen(intNumber) +1)) == NULL) return false; //NULL to check
+	if (((isDigit = malloc(strlen(intNumber) +1))) == NULL) exit(11); //NULL to check
 	
 	//if intNumber given is an integer & between 0 and max
 	if(sscanf(intNumber, "%d%s", &validInt, isDigit) != 1) {
@@ -448,7 +521,8 @@ bool load_codeDrop(hashtable_t* codeDropHash, char* codeDropPath){
 	while( (line = readline(readFrom) ) != NULL){
 		
 		//creating a struct for each code drop  
-		code_drop_t *code_drop = malloc(sizeof(code_drop_t));
+		code_drop_t *code_drop;
+		if ((code_drop = malloc(sizeof(code_drop_t))) == NULL) exit(11);
 		
 		if (code_drop == NULL){ 	// checking if memory was allocated for each struct
 			free(line); //free everything and return false if it fails
@@ -460,7 +534,8 @@ bool load_codeDrop(hashtable_t* codeDropHash, char* codeDropPath){
 		code_drop -> lng = 0.0;
 		code_drop -> lat = 0.0;
 		code_drop -> status = 0; 
-		code_drop -> team = NULL;
+		if ((code_drop -> team = malloc(100)) ==NULL) exit(11);
+		strcpy(code_drop->team, "NONE");
 		
 		if(!load_codeDropPath(code_drop, line, token, codeDropHash)) {
 			free(line); //free everything and return false if it fails
@@ -506,13 +581,14 @@ bool load_codeDropPath(code_drop_t * code_drop, char* line, char* token, hashtab
 	return true;
 }
 
-
+// Frees memory found in the data category of a hashtable
 void delete(void *data){
 	if (data != NULL){//if valid
 		free(data);
 	}
 }
 
+// frees the memory found in the data category of a hashtable, specific to the overall Guide Agent hashtable
 void deleteGAPlayer(void *data){
 	if (data != NULL){
 		free(((GAPlayer_t *) data)->PlayerName);
@@ -522,6 +598,7 @@ void deleteGAPlayer(void *data){
 	}
 }
 
+//frees the memory found in the data category of a hashtable, specific to full Field Agent Hashtable
 void deleteFAPlayer(void *data){
 	if (data != NULL){
 		free(((FAPlayer_t *) data)->PlayerName);
@@ -532,16 +609,25 @@ void deleteFAPlayer(void *data){
 	}
 }
 
+//frees the memory found in the data category of a hashtable, specicic to the top level CodeDrop hashtable
+void deleteCodeDrop(void *data){
+	if (data != NULL){
+		free(((code_drop_t *) data)->team);
+		free(data);
+	}
+}
+
+//Iterator that counts the amount of codeDrops
 void numberOfcodeDrops(void* key, void* data, void* farg) {
 	((game_t*)(farg))->deadDropRemaining +=1;
 }
 
-
+// Function used for confirming that a value is an appropriate int (used only the digis 0-9)
 bool isItValidFloat(char *floatNumber){
 	
 	double validFloat = 0;
 	char * isDigit;
-	if((isDigit = malloc(strlen(floatNumber) +1)) == NULL) return false; //NULL to check
+	if((isDigit = malloc(strlen(floatNumber) +1)) == NULL) exit(11); //NULL to check
 	
 	
 	//if depth given is an integer & between 0 and max
@@ -555,6 +641,7 @@ bool isItValidFloat(char *floatNumber){
 	return true;
 }
 
+/*****DEBUGGING*****/
 void hashTable_FA_print(void *key, void* data, void* farg){
 	if (key && data){ //if valid
 		printf("Key: %s\n", (char *) key);
@@ -597,6 +684,8 @@ int socket_setup(int GSPort) {
   return (comm_sock);
 }
 
+//Allows the server to interpret standard in. Useful for ending the game with a quit message.
+// All other input, it prints to the console and otherwise ignores
 bool handle_stdin(){
 	char *terminalResponse = readline(stdin);
 	if (terminalResponse == NULL || strcmp(terminalResponse, "quit") == 0){
@@ -608,9 +697,11 @@ bool handle_stdin(){
 	return true;
 }
 
+// A funciton that takes a singleton hashtable and gives the necessary infromation to sendIterator
+// an abstract funtion that allows us to send a message through the UDP socket
 void sending(int comm_sock, hashtable_t *tempHash, char *message){
   	sendingInfo_t *sendingInfo_p;
-	sendingInfo_p = malloc(sizeof(sendingInfo_t));
+	if ((sendingInfo_p = malloc(sizeof(sendingInfo_t))) == NULL) exit(11);
 	sendingInfo_p->comm_sock = comm_sock;
 	sendingInfo_p->message = message;
 
@@ -619,6 +710,8 @@ void sending(int comm_sock, hashtable_t *tempHash, char *message){
 	free(sendingInfo_p);
 }
 
+// Iterates through the singleton hashtable from `sending` and does the technical work of sending.
+// This was modified from a function found in chatserver.c 
 void sendIterator(void* key, void* data, void* farg) {
 	// We will never change this block of code
 	sendingInfo_t *sendingInfo_p = (sendingInfo_t *) farg;
@@ -639,6 +732,7 @@ void sendIterator(void* key, void* data, void* farg) {
 	}
 }
 
+// checks the socket for messages and passes them off to `parsing`
 void handle_socket(hashStruct_t *allGameInfo){
     // socket has input ready
 	struct sockaddr_in sender;     // sender of this message
@@ -661,18 +755,23 @@ void handle_socket(hashStruct_t *allGameInfo){
 	        // /****DEBUGGING***/
 
 	        /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
-		        receiverAddr_t *trial = malloc(sizeof(receiverAddr_t));  
-		        trial->port = sender.sin_port;
-		        trial->inaddr = sender.sin_addr;
-				trial->sin_family = sender.sin_family;
+	        receiverAddr_t *trial;
+	        if ((trial = malloc(sizeof(receiverAddr_t)))==NULL) exit(11);  
+	        trial->port = sender.sin_port;
+	        trial->inaddr = sender.sin_addr;
+			trial->sin_family = sender.sin_family;
 		    /***FOR THIS FILE ONLY, SHOULD BE PARSE***/
 
 		    /****LOGGING***/
 			printf("[%s@%d]: %s\n", inet_ntoa(sender.sin_addr), ntohs(sender.sin_port), buf);
 			/****LOGGING***/
-
+			
+			if (allGameInfo->game->rawlogFl == 1)
+				logger(allGameInfo->game->fp, buf);
+			
 			// Create array
-			char** messageArray = malloc(8 *((strlen(buf)+1)/2 + 1) ); 
+			char ** messageArray;
+			if((messageArray = malloc(8 *((strlen(buf)+1)/2 + 1) )) ==NULL) exit(11); 
 
 			if (messageArray == NULL){
 				free(trial);
@@ -689,7 +788,9 @@ void handle_socket(hashStruct_t *allGameInfo){
 	}
 }
 
+// directs the message (in the form of a messageArray) to the appropriate message handler according to OPCODE
 bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
+	
 
 	if(strcmp(messageArray[0], "FA_LOCATION") == 0){
 		//return to user
@@ -705,10 +806,10 @@ bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, r
 	} else if(strcmp(messageArray[0], "GA_STATUS") == 0){
 	//Back to the user
 	GA_STATUS_handler(allGameInfo, messageArray, arraySize, playerAddr);
-	// } else if(strcmp(messageArray[0], "GA_HINT") == 0){
-	// 	//Either one FA or all on team
-	// 	GA_HINT_handler(comm_sock, hash, messageArray, arraySize);
-	// 	return true;
+	} else if(strcmp(messageArray[0], "GA_HINT") == 0){
+		//Either one FA or all on team
+		GA_HINT_handler(allGameInfo, messageArray, arraySize, playerAddr);
+		return true;
 	} else {
 		GSResponseHandler(allGameInfo, playerAddr, "Please enter a proper OPCODE",  "MI_ERROR_INVALID_OPCODE");
 		return false;
@@ -716,20 +817,8 @@ bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, r
 	return true;
 }
 
-// void INVALID_ENTRY_handler(int comm_sock, hashtable_t *hash, char** messageArray, int arraySize){
-// 	//returns a message to the sender
-// 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
-// 	receiverAddr_t *sendingPlayer;
-
-// 	if ((sendingPlayer = (receiverAddr_t *) hashtable_find(hash, messageArray[0])) != NULL){
-// 		hashtable_insert(tempHash, messageArray[0], sendingPlayer); //the key dooesnt matter
-// 		sending(comm_sock, tempHash, "You sent an invalid message");
-// 	}
-// 	hashtable_delete(tempHash);
-// }
-
-
+// handles all messages with the OPCODE "FA_LOCATION"
 void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	//returns a message to the sender
 	int gameIDFlag, playerIDFlag, statusFlag;
@@ -795,7 +884,7 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	//3: TeamName, not allowing them to change teams.
 	//4: PlayerName, can switch it. Hashtable has already been checked for doups.
 	free(currentFA->PlayerName);
-	currentFA->PlayerName = malloc(strlen(messageArray[4]) +1);
+	if ((currentFA->PlayerName = malloc(strlen(messageArray[4]) +1)) ==NULL) exit(11);
 	strcpy(currentFA->PlayerName, messageArray[4]);
 	//5 & 6: Lat and Long both should be updated
 	currentFA->lat = atof(messageArray[5]);
@@ -807,7 +896,7 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	if (currentFA->capturingTime != 0 && time(NULL) - currentFA->capturingTime > 60){
 		currentFA->capturingTime = 0;
 		free(currentFA->capturingHexCode);
-		currentFA->capturingHexCode  = malloc(5);
+		if ((currentFA->capturingHexCode  = malloc(5)) == NULL) exit(11);
 		strcpy(currentFA->capturingHexCode, "P00P");
 		currentFA->status = 0;
 	}
@@ -825,6 +914,7 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	}
 }
 
+//Creates the appropriate response for Field Agent's status request
 void FAPlayerGameStatusHandler(hashStruct_t *allGameInfo, FAPlayer_t *currentFA){
 	
 	char message[BUFSIZE];
@@ -832,8 +922,8 @@ void FAPlayerGameStatusHandler(hashStruct_t *allGameInfo, FAPlayer_t *currentFA)
 	int numRemainingFriendlies = 0;
 	int numRemainingFoe = 0;
 	
-	
-	utility_t *utility_p = malloc(sizeof(utility_t));
+	utility_t *utility_p;
+	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 	utility_p->param1 = guideID;
 	utility_p->param2 = currentFA -> TeamName;
@@ -852,7 +942,10 @@ void FAPlayerGameStatusHandler(hashStruct_t *allGameInfo, FAPlayer_t *currentFA)
 	
 	sprintf(message, "GAME_STATUS|%s|%s|%d|%d|%d",allGameInfo->game->gameID, guideID, allGameInfo->game->deadDropRemaining, numRemainingFriendlies, numRemainingFoe);
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
-	hashtable_insert(tempHash, "key", currentFA->addr); //the key doesnt matter
+	hashtable_insert(tempHash, currentFA->PlayerName, currentFA->addr); //the key doesnt matter
+	
+	if (allGameInfo->game->rawlogFl == 1)
+		logger(allGameInfo->game->fp, message);
 	
 	sending(allGameInfo->game->comm_sock, tempHash, message);
 		
@@ -860,6 +953,61 @@ void FAPlayerGameStatusHandler(hashStruct_t *allGameInfo, FAPlayer_t *currentFA)
 	free(utility_p);
 }
 
+// Generates the appropriate response for Guide Agent's status request for level 3
+void GAPlayerGameStatusHandlerThree(hashStruct_t *allGameInfo, GAPlayer_t *currentGA){
+	char message[BUFSIZE];
+	char playerInfo[9000]= "\0";
+	char codeDropInfo[9000]= "\0";
+	int x = 0;
+	int y = 0;
+	
+	utility_t *utility_p;
+	utility_t *utility_p2;
+	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
+	if ((utility_p2 = malloc(sizeof(utility_t))) == NULL) exit(11);
+
+	hashtable_t *FAFriendlyHash = hashtable_new(1, deleteTempHash, NULL);
+	hashtable_t *FANearEnemyHash = hashtable_new(1, deleteTempHash, NULL);
+
+	utility_p->param1 = playerInfo;
+	utility_p->param2 = &x;
+	utility_p->param3 = FAFriendlyHash;
+	utility_p->param4 = currentGA->TeamName;
+	
+	hash_iterate(allGameInfo->FA, GAGameStatusFriendlyIteratorThree, utility_p);
+
+
+	utility_p->param1 = playerInfo;
+	// utility_p2->param2 = FANearEnemyHash;
+	utility_p->param3 = allGameInfo;
+
+	hash_iterate(FAFriendlyHash, GAGameStatusEnemyIteratorThree, utility_p);
+
+	utility_p2->param1 = codeDropInfo;
+	utility_p2->param2 = &y;
+	utility_p2->param3 = allGameInfo;
+	
+	hash_iterate(FAFriendlyHash, GAGameStatusCodeIteratorThree, utility_p2);//HERE HERE HERE!!!
+	
+	
+	sprintf(message, "GAME_STATUS|%s|%s|%s",allGameInfo->game->gameID, playerInfo, codeDropInfo);
+	
+	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+	hashtable_insert(tempHash, "key", currentGA->addr); 
+	
+	if (allGameInfo->game->rawlogFl == 1)
+		logger(allGameInfo->game->fp, message);
+	
+	sending(allGameInfo->game->comm_sock, tempHash, message);
+	
+	hashtable_delete(tempHash);
+	hashtable_delete(FAFriendlyHash);
+	hashtable_delete(FANearEnemyHash);
+	free (utility_p2);
+	free (utility_p);
+}
+
+// creates and sends the Game Status message for Guide Agent's status request for level one
 void GAPlayerGameStatusHandler(hashStruct_t *allGameInfo, GAPlayer_t *currentGA){
 	
 	char message[BUFSIZE];
@@ -868,7 +1016,8 @@ void GAPlayerGameStatusHandler(hashStruct_t *allGameInfo, GAPlayer_t *currentGA)
 	int x = 0;
 	int y = 0;
 	
-	utility_t *utility_p = malloc(sizeof(utility_t));
+	utility_t *utility_p;
+	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 	utility_p->param1 = playerInfo;
 	utility_p->param2 = &x;
@@ -886,11 +1035,18 @@ void GAPlayerGameStatusHandler(hashStruct_t *allGameInfo, GAPlayer_t *currentGA)
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 	hashtable_insert(tempHash, "key", currentGA->addr); //the key doesnt matter
 	
+	if (allGameInfo->game->rawlogFl == 1)
+		logger(allGameInfo->game->fp, message);
+	
 	sending(allGameInfo->game->comm_sock, tempHash, message);
 		
 	hashtable_delete(tempHash);
 	free (utility_p);
 }
+
+// a helper iterator for "GAPlayerGameStatusHandler" that creates the string 
+// describing all of the FA's informaiton
+// specific to level 1
 void GAGameStatusFriendlyIterator(void *key, void* data, void* farg){
 
 	char playerInfo[BUFSIZE];
@@ -915,6 +1071,157 @@ void GAGameStatusFriendlyIterator(void *key, void* data, void* farg){
 	*(int*)utility_p->param2 += 1;
 }
 
+// a helper function for "GAPlayerGameStatusHandlerThree" that creates the string 
+//describing all of the FA's informaiton
+// specific to level 3
+void GAGameStatusFriendlyIteratorThree(void *key, void* data, void* farg){
+
+	char playerInfo[BUFSIZE];
+	char *PlayerID = (char *) key;
+	
+	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
+	
+	utility_t *utility_p = (utility_t *) farg;
+	
+	char *allPlayers= (char *) utility_p->param1;
+	hashtable_t *FAHash = (hashtable_t *) utility_p->param3;
+	char *TeamName = (char *) utility_p->param4;
+
+	if((strcmp(FAPlayer_p->TeamName, TeamName)) == 0){
+		hashtable_insert(FAHash, PlayerID, FAPlayer_p);
+
+		long int currenttime = time(NULL);
+		long int lastContact = currenttime - FAPlayer_p->lastContact;
+		sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,FAPlayer_p->PlayerName, FAPlayer_p->status, FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
+		
+		if (*(int*)utility_p->param2 == 0) 
+			strcat(allPlayers, playerInfo);
+		else {
+			strcat(allPlayers, ":");
+			strcat(allPlayers, playerInfo);
+		}
+		*(int*)utility_p->param2 += 1;
+	}
+}
+
+// a helper itertor for "GAPlayerGameStatusHandlerThree" that creates the string
+// describing all of the CodeDrop informaiton
+// specific to level 3
+void GAGameStatusCodeIteratorThree(void *key, void* data, void* farg){
+	//Iterating through the hashtable of only friendly operatives.
+	//In this loop, I have to iterate though all of the field agents and add those agents 
+	int y = 0;
+
+	FAPlayer_t *FAFriendlyPlayer_p = (FAPlayer_t *) data;
+	utility_t *utility_p = (utility_t *) farg;
+
+	char* allCodes= utility_p->param1;
+	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param3;
+
+	utility_p->param5 = &(FAFriendlyPlayer_p->lat);
+	utility_p->param2 = &(FAFriendlyPlayer_p->lng);
+	utility_p->param4 = &y; //HERE HERE HERE!!!
+	utility_p->param1 = allCodes;
+
+	hash_iterate(allGameInfo->CD, GAGameStatusCodeHashIteratorThree, utility_p);
+}
+
+// a helper iterator for "GAGameStatusCodeIteratorThree" that creates a 
+//string of codeDrops that are within 100m of any friendly FA
+// Iterates through the master FA hashtable.
+// Speficic to level 3
+void GAGameStatusCodeHashIteratorThree(void *key, void* data, void* farg){
+	char codeDropInfo[BUFSIZE];
+	
+	code_drop_t *code_drop_p = (code_drop_t *) data;
+	utility_t *utility_p = (utility_t *) farg;
+	
+	double lat = *(double *) utility_p->param5;
+	double lng = *(double *) utility_p->param2;
+	char *allCodes = (char *) utility_p->param1;
+	
+	double distance = dist(lat, lng, code_drop_p->lng, code_drop_p->lat);
+
+	if (distance <= 100){
+		if (code_drop_p->team == NULL) {
+			free(code_drop_p);
+			if ((code_drop_p->team = malloc(100)) == NULL) exit(11);
+			strcpy(code_drop_p->team, "NONE");
+		}
+		sprintf(codeDropInfo, "%s,%lf,%lf,%s", (char*) key,code_drop_p->lat,code_drop_p->lng,code_drop_p->team);
+		
+		if(*(int*)utility_p->param4 == 0) 
+			strcat(allCodes, codeDropInfo);
+		
+		else {
+			strcat(allCodes, ":");
+			strcat(allCodes, codeDropInfo);
+		}
+
+		*(int*)utility_p->param4 += 1;
+	}
+}
+
+// a helper iterator for "GAPlayerGameStatusHandlerThree" that calls another iterator in 
+// order to make a string of enemy FAs that are within 100m of any friendly FA
+// Iterates through the frineldy FA hashtable.
+// specific to level 3
+void GAGameStatusEnemyIteratorThree(void *key, void* data, void* farg){
+	//Iterating through the hashtable of only friendly operatives.
+	//In this loop, I have to iterate though all of the field agents and add those agents 	
+	FAPlayer_t *FAFriendlyPlayer_p = (FAPlayer_t *) data;
+	utility_t *utility_p = (utility_t *) farg;
+	
+	char *allPlayers = (char *) utility_p->param1;
+	// hashtable_t *FAEnemyHash = (hashtable_t *) utility_p->param2;
+	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param3;
+
+	utility_t *utility_p2;
+	if ((utility_p2 = malloc(sizeof(utility_t))) == NULL) exit(11);
+
+	utility_p2->param1 = &(FAFriendlyPlayer_p->lat);
+	utility_p2->param2 = &(FAFriendlyPlayer_p->lng);
+	utility_p2->param3 = FAFriendlyPlayer_p->TeamName; // TeamName
+	// utility_p2->param4 = FAEnemyHash; // Hashtable
+	utility_p2->param5 = allPlayers;
+
+	hash_iterate(allGameInfo->FA, GAGameStatusEnemyHashIteratorThree, utility_p2);
+	free(utility_p2);
+}
+
+// a helper iterator for "GAGameStatusEnemyIteratorThree" makes a string of enemy FAs
+// that are within 100m of any friendly FA
+// Iterates through the master FA hashtable.
+//specific to level 3
+void GAGameStatusEnemyHashIteratorThree(void *key, void* data, void* farg){
+	char playerInfo[BUFSIZE];
+	
+	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
+	utility_t *utility_p = (utility_t *) farg;
+	
+	double lat = *(double *) utility_p->param1;
+	double lng = *(double *) utility_p->param2;
+	char *friendlyTeamName = (char *) utility_p->param3;
+	// hashtable_t *FAEnemyHash = (hashtable_t *) utility_p->param4;
+	char *allPlayers = (char *) utility_p->param5;
+	
+	double distance = dist(lat, lng, FAPlayer_p->lat, FAPlayer_p->lng);
+
+	if (distance <= 100){
+		if((strcmp(FAPlayer_p->TeamName, friendlyTeamName)) != 0){
+			long int currenttime = time(NULL);
+			long int lastContact = currenttime - FAPlayer_p->lastContact;
+			sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,FAPlayer_p->PlayerName, FAPlayer_p->status, FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
+			
+			strcat(allPlayers, ":");
+			strcat(allPlayers, playerInfo);
+
+		}
+	}
+}
+
+// a helper iterator that makes a string from all of the remaining code Drops
+// specific to level 1
 void CDGameStatusFriendlyIterator(void *key, void* data, void* farg){
 
 	char codeDropInfo[BUFSIZE];
@@ -926,7 +1233,11 @@ void CDGameStatusFriendlyIterator(void *key, void* data, void* farg){
 	char* allCodes= utility_p->param1;
 
 	
-	if (code_drop_p->team == NULL) code_drop_p->team = "NONE";
+	if (code_drop_p->team == NULL) {
+		free(code_drop_p);
+		if((code_drop_p->team = malloc(100)) == NULL) exit(11);
+		strcpy(code_drop_p->team, "NONE");
+	}
 	sprintf(codeDropInfo, "%s,%lf,%lf,%s", (char*) key,code_drop_p->lat,code_drop_p->lng,code_drop_p->team);
 	
 	if(*(int*)utility_p->param2 == 0) 
@@ -939,10 +1250,14 @@ void CDGameStatusFriendlyIterator(void *key, void* data, void* farg){
 	*(int*)utility_p->param2 += 1;
 }
 
-
+// A function that can be used to send either one message to one reciever 
+// or many messages to many recievers in the GSResponse Format
 void GSResponseHandler(hashStruct_t *allGameInfo, receiverAddr_t *playerAddr, char* Response, char* respCode){
 	char message[BUFSIZE];	
 	sprintf(message, "GS_RESPONSE|%s|%s|%s",allGameInfo->game->gameID, respCode, Response);
+	
+	if (allGameInfo->game->rawlogFl == 1)
+		logger(allGameInfo->game->fp, message);
 	
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 	hashtable_insert(tempHash, "key", playerAddr); //the key doesnt matter
@@ -952,8 +1267,12 @@ void GSResponseHandler(hashStruct_t *allGameInfo, receiverAddr_t *playerAddr, ch
 	hashtable_delete(tempHash);
 }
 
+// creates individualized GS_CAPTURE messages to inform players that they are 
+// targeted and to give them their unique hash code. Uses a helper iterator.
 void GS_CAPTURE_IDHandler(hashStruct_t *allGameInfo, hashtable_t *hash){
-	utility_t *utility_p = malloc(sizeof(utility_t));
+
+	utility_t *utility_p;
+	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 	char message[BUFSIZE];	
 	sprintf(message, "GS_CAPTURE_ID|%s",allGameInfo->game->gameID);
@@ -968,6 +1287,9 @@ void GS_CAPTURE_IDHandler(hashStruct_t *allGameInfo, hashtable_t *hash){
 	free(utility_p);
 }
 
+// a function that handles all possibe GameID inputs
+// in the appropriate context, if the GameID is zero, it calls a function that adds a player to the game
+// otherwise, it checks to make sure that the GameID is correct.
 int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray,receiverAddr_t * playerAddr){
 
 	if (strcmp(messageArray[1], "0") == 0){
@@ -985,6 +1307,9 @@ int gameIDHandler(hashStruct_t *allGameInfo, char** messageArray,receiverAddr_t 
 	}
 }
 
+// a function that handles all possibe playerID inputs
+// it confirms that all players have unique hex codes
+// in the appropriate context, this funciton allows a GA player to be created if '0' is given as the argument
 int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr_t * playerAddr){
 	
 	if (strlen(messageArray[2]) > 8){
@@ -1029,14 +1354,17 @@ int playerIDHandler(hashStruct_t *allGameInfo, char** messageArray, receiverAddr
 	}
 }
 
-//should be after we verify ID
+// verifies input Team Names
+// verifies there is at most one GA per team
+// ensure that no player switches teams.
 bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray, receiverAddr_t * playerAddr){
 	if (messageArray[0][0] == 'G'){
 		GAPlayer_t *foundPlayerGA;
 		if((foundPlayerGA = hashtable_find(allGameInfo->GA, messageArray[2])) == NULL){
 			//player is not known
 			//check if that team name already exists
-			utility_t *utility_p = malloc(sizeof(utility_t));
+			utility_t *utility_p;
+			if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 			int errorFlag = 0;
 
 			utility_p->param1 = &errorFlag;
@@ -1082,10 +1410,12 @@ bool teamNameHandler(hashStruct_t *allGameInfo, char**messageArray, receiverAddr
 	}
 }
 
-//should be after we verify ID
+//This function ensures that no two FAs have the same name
+// for GA's, since they are the only GA on a team, just returns true.
 bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t * playerAddr){
 	if (messageArray[0][0] == 'F'){
-		utility_t *utility_p = malloc(sizeof(utility_t));
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 		int errorFlag = 0;
 		utility_p->param1 = &errorFlag;
 		utility_p->param2 = messageArray[4];
@@ -1136,6 +1466,7 @@ bool playerNameHandler(hashStruct_t *allGameInfo, char **messageArray, receiverA
 	return true;
 }
 
+//for the FA OPCODEs, verifies that the give lattitude is a valid Float and that it is within the correct range
 bool latHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *allGameInfo){
 	if (isItValidFloat(messageArray[5])){
 		if (atol(messageArray[5]) > 90.0 || atol(messageArray[5]) < -90.0) {
@@ -1148,6 +1479,7 @@ bool latHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *
 		return false;
 }
 
+//for the FA OPCODES, verifies that the given longitude is a valid Float and that it is within the correct range
 bool lngHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *allGameInfo){
 	if (isItValidFloat(messageArray[6])){
 		if (atol(messageArray[6]) > 180.0 || atol(messageArray[6]) < -180.0) {
@@ -1160,6 +1492,7 @@ bool lngHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *
 	return false;
 }
 
+// Parses the status request flag and creates a flag that triggers a response message.
 int statusReqHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruct_t *allGameInfo){
 	if (messageArray[0][0] == 'G'){
 		if(isItValidInt(messageArray[5])) {
@@ -1189,15 +1522,19 @@ int statusReqHandler(char **messageArray, receiverAddr_t * playerAddr, hashStruc
 	return -1;
 }
 
+// Add any player to the game. Mallocs memory and initializes all of the player's information.
 void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *addr){
 	//assuming that everything is verified.
+	char logText[1000];
 
 	//only doing the FA side because I dont know what all of fields of the GA player struct are
 	if ((strcmp(messageArray[0], "FA_LOCATION")) == 0){
-		FAPlayer_t *newFA = malloc(sizeof(FAPlayer_t));
-		newFA->PlayerName = malloc((strlen(messageArray[4]) + 1));
-		newFA->TeamName = malloc((strlen(messageArray[3]) + 1));
-		receiverAddr_t *addrFA = malloc(sizeof(receiverAddr_t));
+		FAPlayer_t *newFA;
+		receiverAddr_t *addrFA;
+		if ((newFA = malloc(sizeof(FAPlayer_t))) == NULL) exit(11);
+		if ((newFA->PlayerName = malloc((strlen(messageArray[4]) + 1))) == NULL) exit(11);
+		if ((newFA->TeamName = malloc((strlen(messageArray[3]) + 1))) == NULL) exit(11);
+		if ((addrFA = malloc(sizeof(receiverAddr_t))) == NULL) exit(11);
 
 		addrFA->port = addr->port;
 		addrFA->inaddr = addr->inaddr;
@@ -1213,16 +1550,20 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 		newFA->lastContact = time(NULL);
 		newFA->addr = addrFA;
 		newFA->capturingTime = 0;
-		char *tempHashCode = malloc(5);
+		char *tempHashCode;
+		if ((tempHashCode = malloc(5)) == NULL) exit(11);
 		strcpy(tempHashCode, "P00P");
 		newFA->capturingHexCode = tempHashCode;
+		sprintf(logText, "Field Agent %s was added to team %s", messageArray[4], messageArray[3]);
+		logger(allGameInfo->game->fp, logText);
 		hashtable_insert(allGameInfo->FA, messageArray[2], newFA);
 	} else {
-		GAPlayer_t *newGA = malloc(sizeof(GAPlayer_t));
-
-		newGA->PlayerName = malloc((strlen(messageArray[4]) + 1));
-		newGA->TeamName = malloc((strlen(messageArray[3]) + 1));
-		receiverAddr_t *addrGA = malloc(sizeof(receiverAddr_t));
+		GAPlayer_t *newGA;
+		receiverAddr_t *addrGA;
+		if ((newGA = malloc(sizeof(GAPlayer_t))) == NULL) exit(11);
+		if ((newGA->PlayerName = malloc((strlen(messageArray[4]) + 1))) == NULL) exit(11);
+		if ((newGA->TeamName = malloc((strlen(messageArray[3]) + 1))) == NULL) exit(11);
+		if ((addrGA = malloc(sizeof(receiverAddr_t))) == NULL) exit(11);
 
 		addrGA->port = addr->port;
 		addrGA->inaddr = addr->inaddr;
@@ -1233,12 +1574,14 @@ void addPlayer(hashStruct_t *allGameInfo, char **messageArray, receiverAddr_t *a
 		newGA->status = 0; //default is 0 (active)
 		newGA->lastContact = time(NULL);
 		newGA->addr = addrGA;
+		sprintf(logText, "Guide Agent %s was added to team %s", messageArray[4], messageArray[3]);
+		logger(allGameInfo->game->fp, logText);
 		hashtable_insert(allGameInfo->GA, messageArray[2], newGA);
 	}
 }
 
-
-
+// Verifies that given OPCODEs are of the correct length (4 hexDigits) to neutralize code
+// Also checks to see if the input HexCodes match any in the master DropCode hashtable
 bool codeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t *allGameInfo){
 	//check for a valid Hex Code
 	if (strlen(messageArray[7]) != 4){
@@ -1249,7 +1592,8 @@ bool codeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t
 
 		int existsFlag = 0;
 
-		utility_t *utility_p = malloc(sizeof(utility_t));
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 
 		utility_p->param1 = &existsFlag; //existsFlag
@@ -1267,8 +1611,42 @@ bool codeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t
 	}
 }
 
+// Specific to the GA_HINT function. Verifies that the given HexCode is either a "*" or a 
+// valid hexCode that matches an FA. 
+bool messageCodeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashStruct_t *allGameInfo){
+	//check for a valid Hex Code
+	if ((strcmp("*", messageArray[5])) == 0){
+		return true;
+	} else if (strlen(messageArray[5]) != 4){
+		// error message already sent inside of ValidateHexCode
+		printf("Please insert a valid HexCode of 4 digits\n");
+		return false;
+	} else {
+		int existsFlag = 0;
+
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
+
+		utility_p->param1 = &existsFlag; //existsFlag
+		utility_p->param2 =  messageArray[5]; //hexString
+		
+		hash_iterate(allGameInfo->FA, existingHexCodeIterator, utility_p);
+
+		if ( existsFlag == 1){
+			free(utility_p);
+			return true;
+		} else {
+			free(utility_p);
+			return false;
+		}
+	}
+}
+
+// handles the appropriate actions to neutralize a dropcode. 
+// Validates the message, neutralizes the dropCode, updates any relevant information.
 void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	int gameIDFlag, playerIDFlag;
+	char logText[1000];
 
 	//Validate the number of arguments in the message
 	if (arraySize != 8){
@@ -1326,8 +1704,10 @@ void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int a
 		double distance = dist(atof(messageArray[5]), atof(messageArray[6]), foundCode->lng, foundCode->lat);
 		if (distance < 10) {
 			foundCode->status = 1;
-			foundCode->team = messageArray[3];
+			strcpy(foundCode->team, messageArray[3]);
 			allGameInfo->game->deadDropRemaining -= 1;
+			sprintf(logText, "Field Agent %s neutralized codeDrop %s", messageArray[4], messageArray[7]);
+			logger(allGameInfo->game->fp, logText);
 			GSResponseHandler(allGameInfo, playerAddr, "Congratulations! You've neutralized a piece of code!", "MI_NEUTRALIZED");
 		} else {
 			return;
@@ -1341,8 +1721,11 @@ void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int a
 	currentFA->Neutralized = currentFA->Neutralized + 1; 
 }
 
+// handles the appropriate actions for FA_CAPTURE OPCODES.
+// handles both the case of initiating a capture or completing a capture.
 void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	int gameIDFlag, playerIDFlag;
+	char logText[1000];
 
 	//Validate the number of arguments in the message
 	if (arraySize != 6){
@@ -1374,7 +1757,8 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 	}
 
 	if ((strcmp(messageArray[5], "0") )== 0) {
-		utility_t *utility_p = malloc(sizeof(utility_t));
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 		
 		hashtable_t *closePlayers = hashtable_new(1, deleteTempHash, NULL);
 
@@ -1391,7 +1775,8 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 		hashtable_delete(closePlayers);
 		free(utility_p);
 	} else {
-		utility_t *utility_p = malloc(sizeof(utility_t));
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 		int i = 0;
 
@@ -1410,13 +1795,17 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 
 			capturingPlayer->capturedPlayers = capturingPlayer->capturedPlayers + 1;
 			GSResponseHandler(allGameInfo, playerAddr, "Congratulations! Your capture was successful!", "MI_CAPTURE_SUCCESS");
+	
+			sprintf(logText, "Field Agent %s from team %s was captured", capturedPlayer->PlayerName, capturedPlayer->TeamName);
+			logger(allGameInfo->game->fp, logText);
 		}
 		
 		free(utility_p);
 	}
 }
 
-
+// Creates ands Sends the appropriate response to the GA_STATUS OPCODE as well as updating the 
+// relevant information.
 void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr){
 	//returns a message to the sender
 	
@@ -1458,7 +1847,7 @@ void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arrayS
 	GAPlayer_t *currentGA = hashtable_find(allGameInfo->GA, messageArray[2]);
 
 	free(currentGA->PlayerName);
-	currentGA->PlayerName = malloc(strlen(messageArray[4]) +1);
+	if ((currentGA->PlayerName = malloc(strlen(messageArray[4]) +1)) == NULL) exit(11);
 	strcpy(currentGA->PlayerName, messageArray[4]);
 
 	currentGA->lastContact = time(NULL);
@@ -1470,45 +1859,105 @@ void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arrayS
 
 
 
-	if (statusFlag == 1){
+	if (statusFlag == 1 && allGameInfo->game->level == 1){
 		//send a message back.
 		GAPlayerGameStatusHandler(allGameInfo, currentGA);
+	} else if (statusFlag == 1 && allGameInfo->game->level == 3){
+		GAPlayerGameStatusHandlerThree(allGameInfo, currentGA);
 	}
 }
 
-// void GA_HINT_handler(hashStruct *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
-// 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+// Handles the GA_HINT OPCODE messages. Sends messages to either one or all of a team. 
+void GA_HINT_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
+	int gameIDFlag, playerIDFlag;
 
-// 	char *Ihab = "129.170.214.160";
+	if (arraySize != 7){
+		GSResponseHandler(allGameInfo, playerAddr, "you need 7 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
+		return;
+	}
 
-// 	utility_t *utility_p = malloc(sizeof(utility_t));
-// 	utility_p->param1 = tempHash;
-// 	utility_p->param2 = Ihab;
-// 	// receiverAddr_t *sendingPlayer;
-// 	hash_iterate(allGameInfo->GA, GA_HINT_iterator, utility_p);
-// 	sending(allGameInfo->game->comm_sock, tempHash, "GA_HINT received");
+	//Validate each of the parameters
+	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
+	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
 
-// 	hashtable_delete(tempHash);
-// 	free(utility_p);
-// }
+	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
 
-// void GA_HINT_iterator(voixd* key, void* data, void* farg){
-// 	char IP1[20];
+	if (playerNameHandler(allGameInfo, messageArray,playerAddr)) {
+		printf("player true\n");
+	} else {
+		printf("player false\n");
+		return;
+	}
 
-// 	utility_t *utility_p = (utility_t *) farg;
-// 	char *key1 = (char *)key;
+	if (messageCodeIDHandler(messageArray, playerAddr, allGameInfo)) {
+		printf("Inputed HexCode exists\n");
+	} else {
+		printf("Inputed HexCode does not exist, ignoring message\n");
+		return;
+	}
 
-// 	hashtable_t *tempHash = utility_p->param1;
-// 	char *passedStr = (char *) utility_p->param2;
-	
+	if ((gameIDFlag != 0) || (playerIDFlag != 0)){
+		if (gameIDFlag == 1){
+		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
+		return;
+		} else if (gameIDFlag != 1){
+			GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
+			return;
+		}
+	}
 
-// 	sscanf(key1, "%s *", IP1);
 
-// 	if (strcmp(IP1, passedStr) == 0){
-// 		hashtable_insert(tempHash, key1, data); //the key dooesnt matter
-// 	} 
-// }
+	//make a hashtable
+	//fill it with either a single player or a whole team
+	//send the message with the right format
 
+	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
+
+	if ((strcmp("*", messageArray[5])) == 0){
+
+		utility_t *utility_p;
+		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
+
+
+		utility_p->param1 = messageArray[3]; //TeamName
+		utility_p->param2 = tempHash;
+		
+		hash_iterate(allGameInfo->FA, FAMatchingTeam, utility_p);
+
+		utility_t *utility_p2;
+		if ((utility_p2 = malloc(sizeof(utility_t))) == NULL) exit(11);
+
+		char message1[BUFSIZE];	
+		sprintf(message1, "%s|%s|%s|%s|%s", 
+			messageArray[1], messageArray[2], messageArray[3], messageArray[4], messageArray[5]);
+		printf("%s\n", message1);
+
+		utility_p2->param1 = allGameInfo;
+		utility_p2->param2 = message1;
+		utility_p2->param3 = messageArray[6];
+
+
+
+		hash_iterate(tempHash, GA_HINTIterator, utility_p2);
+		free(utility_p);
+		free(utility_p2);
+	} else {
+		FAPlayer_t *FAPlayer_p = hashtable_find(allGameInfo->FA, messageArray[5]);
+		hashtable_insert(tempHash, messageArray[5], FAPlayer_p->addr);
+		char message[BUFSIZE];
+		sprintf(message, "%s|%s|%s|%s|%s|%s|%s", 
+		messageArray[0], messageArray[1],
+		messageArray[2], messageArray[3],
+		messageArray[4], messageArray[5],
+		messageArray[6]);
+
+		sending(allGameInfo->game->comm_sock, tempHash, message);
+	}
+
+	hashtable_delete(tempHash);
+}
+
+// Compiles the game statistics to create and send a message at the end of game.
 void GAME_OVER_handler(hashStruct_t *allGameInfo){
 	
 	char message[BUFSIZE];
@@ -1520,9 +1969,8 @@ void GAME_OVER_handler(hashStruct_t *allGameInfo){
 	hash_iterate(allGameInfo->FA, FAcopyingAddressIterator, tempHash);
 	hash_iterate(allGameInfo->GA, GAcopyingAddressIterator, tempHash);
 
-	
-
-	utility_t *utility_p = malloc(sizeof(utility_t));
+	utility_t *utility_p;
+	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 	utility_p->param1 = allTeamInfo;
 	utility_p->param2 = tempHash2;
@@ -1533,6 +1981,9 @@ void GAME_OVER_handler(hashStruct_t *allGameInfo){
 	
 	sprintf(message, "GAME_OVER|%s|%d|%s",allGameInfo->game->gameID, allGameInfo->game->deadDropRemaining, allTeamInfo);
 	
+	if (allGameInfo->game->rawlogFl == 1)
+		logger(allGameInfo->game->fp, message);
+	
 	sending(allGameInfo->game->comm_sock, tempHash, message);
 	
 	hashtable_delete(tempHash);
@@ -1541,19 +1992,21 @@ void GAME_OVER_handler(hashStruct_t *allGameInfo){
 	
 }
 
+// helper iterator that copies the sending addresses of FAPlayers in one hashtable into another hashtable.
 void FAcopyingAddressIterator(void *key, void* data, void* farg){
 	hashtable_t *hash = (hashtable_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
 	hashtable_insert(hash, (char*) key, FAPlayer_p->addr);
 }
 
+// helper iterator that copies the sending address of GAPlayers in one hashtable into another one.
 void GAcopyingAddressIterator(void *key, void* data, void* farg){
 	hashtable_t *hash = (hashtable_t *) farg;
 	GAPlayer_t *GAPlayer_p = (GAPlayer_t *) data;
 	hashtable_insert(hash, (char*) key, GAPlayer_p->addr);
 }
 
-
+// The iterator that compiles game statistics from each FAPlayer at the end of the game.
 void gameOverIterator(void *key, void* data, void* farg){
 	char eachTeamInfo[BUFSIZE];
 	static int firstInsert = 0;
@@ -1573,7 +2026,8 @@ void gameOverIterator(void *key, void* data, void* farg){
 
 	if (hashtable_insert(hash, FAPlayer_p->TeamName, NULL)){
 		
-		utility_t *utility_p2 = malloc(sizeof(utility_t));
+		utility_t *utility_p2;
+		if ((utility_p2 = malloc(sizeof(utility_t))) == NULL) exit(11);
 
 		utility_p2->param1 = FAPlayer_p->TeamName;
 		utility_p2->param2 = &numberOfPlayers;
@@ -1600,6 +2054,7 @@ void gameOverIterator(void *key, void* data, void* farg){
 	}
 }
 
+// returns the number of FAPlayers in a given hashtable
 void numberOfPlayersIterator(void* key, void* data, void* farg) {
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1611,6 +2066,7 @@ void numberOfPlayersIterator(void* key, void* data, void* farg) {
 	}
 }
 
+// returns the number of GAPlayers in a given hashtable
 void numberCapturingIterator(void* key, void* data, void* farg) {
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1622,6 +2078,7 @@ void numberCapturingIterator(void* key, void* data, void* farg) {
 	}
 }
 
+// counts the total number of neutralized codes by summing each FAPlayer's neutralized counts.
 void numberNeutralizedIterator(void* key, void* data, void* farg) {
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1633,6 +2090,7 @@ void numberNeutralizedIterator(void* key, void* data, void* farg) {
 	}
 }
 
+//counts the total number of captured players by summing each of the FAPlayer's captured-player counts in a given hashtable.
 void numberCapturedIterator(void* key, void* data, void* farg) {
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1645,12 +2103,13 @@ void numberCapturedIterator(void* key, void* data, void* farg) {
 	}
 }
 
-
+// a helper function that removes the data from a temperary hashtable with no malloc'd memory
 void deleteTempHash(void *data){
 	if (data){	//if valid
 	}
 }
 
+// function that translates the input message into a messageArray.
 int parsingMessages(char* line, char ** messageArray){
 
 	char* word; // the keyword
@@ -1686,13 +2145,13 @@ void freeArray(char** array, int size){
 	free(array); //delete the the query array
 }
 
-
+/***** debugging *****/
 void printArray(char** array, int size){
 	for(int i = 0; i < size ; i++){ //looping through the query array
 		printf("Array[%d]: %s\n", (i+1), array[i]);
 	}
 }
-
+/***** debugging *****/
 
 // After validating the correctness of the keywords, they are added to the query array
 // otherwise, it dellocate the memory created to store the keywords and terminate matching for the query
@@ -1710,25 +2169,27 @@ int copyValidKeywordsToQueryArray( char ** array, char* word, int count){
 	return count;
 }
 
+//Creates a random HexCode by getting a random intiger and converting it to hexidecimal format.
 char *makeRandomHex(){
 	int r = rand() %65535;
-	char *hexString = malloc(10);
+	char * hexString;
+	if ((hexString = malloc(10)) == NULL) exit(11);
 	sprintf(hexString, "%X", r);
 	return hexString;
 }
 
+//Deletes the toplevel datastructure. 
 void deleteHashStruct(hashStruct_t *allGameInfo){
 	hashtable_delete(allGameInfo->CD);
 	hashtable_delete(allGameInfo->GA);
 	hashtable_delete(allGameInfo->FA);
 	free(allGameInfo->game->gameID);
-
 	free(allGameInfo->game);
 	free(allGameInfo);
 }
 
-
-void GAMatchingTeam(void *key, void* data, void* farg){ //TEAM NAME
+// Searches a hashtable that has GAPlayer_t* data for any player that has a given TeamName.
+void GAMatchingTeam(void *key, void* data, void* farg){ 
 	utility_t *utility_p = (utility_t *) farg;
 	GAPlayer_t *GAPlayer_p = (GAPlayer_t *) data;
 
@@ -1739,6 +2200,21 @@ void GAMatchingTeam(void *key, void* data, void* farg){ //TEAM NAME
 	}
 }
 
+// Searches a hashtable that has FAPlayer_t* data for any player that has a given TeamName.
+void FAMatchingTeam(void *key, void* data, void* farg){ 
+	utility_t *utility_p = (utility_t *) farg;
+	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
+	char *hexKey = (char *) key;
+
+	char *name = (char *) utility_p->param1;
+	hashtable_t *hash = (hashtable_t *) utility_p->param2;
+
+	if ((strcmp(FAPlayer_p->TeamName, name)) == 0){
+		hashtable_insert(hash, hexKey, FAPlayer_p->addr);
+	}
+}
+
+// Searches a hashtable that has GAPlayer_t* data for any player that has a given GuideID.
 void GAguideIDIterator(void *key, void* data, void* farg){ 
 	utility_t *utility_p = (utility_t *) farg;
 	GAPlayer_t *GAPlayer_p = (GAPlayer_t *) data;
@@ -1750,6 +2226,7 @@ void GAguideIDIterator(void *key, void* data, void* farg){
 	}
 }
 
+// Helper iterator that counts the number of remaining players on a given team in a hashtable with FAPlayer_t* data
 void RemainingOperativesIterator(void *key, void* data, void* farg){ 
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1762,6 +2239,7 @@ void RemainingOperativesIterator(void *key, void* data, void* farg){
 	}
 }
 
+// Helper iterator that counts the number of remaining players not on a given team in a hashtable with FAPlayer_t* data
 void RemainingFoeIterator(void *key, void* data, void* farg){ 
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1774,7 +2252,7 @@ void RemainingFoeIterator(void *key, void* data, void* farg){
 	}
 }
 
-
+// Searches a hashtable that has FAPlayer_t* data for any player that has a given PlayerName.
 void FAPlayerNamesIterator(void *key, void* data, void* farg){  //PLAYER NAME
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1786,22 +2264,19 @@ void FAPlayerNamesIterator(void *key, void* data, void* farg){  //PLAYER NAME
 	}
 }
 
+// Searches a hashtable for the existence of a given hashcode. Used to find matching hexCodes at codeDrops.
 void existingHexCodeIterator(void *key, void* data, void* farg){
 	utility_t *utility_p = (utility_t *) farg;
 	char *code_drop_key = (char *) key;
 
 	char *hexString = (char *) utility_p->param2;
 
-	printf("HexString: %s\n", hexString);
-	printf("code_drop_key: %s\n", code_drop_key);
-
-
 	if ((strcmp(hexString, code_drop_key)) == 0){
-		printf("Hi :D\n");
 		*(int*) utility_p->param1 = 1;
 	}
 }
 
+// adds all of the players inside of a 10m radius to a hashtable. Used for determining eligable players to capture.
 void captureProximityIterator(void *key, void* data, void* farg){ 
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1828,6 +2303,31 @@ void captureProximityIterator(void *key, void* data, void* farg){
 	}
 }
 
+// Creates and sends an individualized message for each member of a team whose guideAgent sent a hint.
+void GA_HINTIterator(void *key, void* data, void* farg){
+	utility_t *utility_p = (utility_t *) farg;
+	receiverAddr_t *addr = (receiverAddr_t *) data;
+	char *PlayerID = (char *) key;
+
+	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param1;
+	char *inMessage1= (char *) utility_p->param2;
+	char *inMessage2 = (char *) utility_p->param3;
+
+	char message[BUFSIZE];	
+	sprintf(message, "%s|%s|%s", 
+		inMessage1, PlayerID, inMessage2);
+	printf("%s\n", message);
+
+	// receiverAddr_t *addr = FAPlayer_p->addr;
+	hashtable_t *hash = hashtable_new(1, deleteTempHash, NULL);
+	hashtable_insert(hash, PlayerID, addr); //the key doesnt matter
+		
+	sending(allGameInfo->game->comm_sock, hash, message);
+		
+	hashtable_delete(hash);
+}
+
+// Sends a GS_CAPTURE message to all of those who are in a hashtable with each player's individualized OPCODE.
 void GS_CAPTURE_IDIterator(void *key, void* data, void* farg){
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
@@ -1841,16 +2341,18 @@ void GS_CAPTURE_IDIterator(void *key, void* data, void* farg){
 	printf("%s\n", message);
 	
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
-	hashtable_insert(tempHash, FAPlayer_p->PlayerName, FAPlayer_p->addr); //the key doesnt matter
+	hashtable_insert(tempHash, FAPlayer_p->PlayerName, FAPlayer_p->addr); 
 	
 	sending(allGameInfo->game->comm_sock, tempHash, message);
 		
 	hashtable_delete(tempHash);
 }
 
+// finds a player with a given temporaryCaptureHexCode in order to mark them as captured
 void findCapturedPlayer(void *key, void* data, void* farg){
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
+
 
 	char *givenCode = (char *) utility_p->param1;
 
@@ -1876,4 +2378,11 @@ double dist(double th1, double ph1, double th2, double ph2){
 	dx = cos(ph1) * cos(th1) - cos(th2);
 	dy = sin(ph1) * cos(th1);
 	return (asin(sqrt(dx * dx + dy * dy + dz * dz) / 2) * 2 * R) * 1000;
+}
+
+void logger(FILE *fp, char* message){
+	time_t ltime; /* calendar time */
+    ltime=time(NULL); /* get current cal time */
+    fprintf(fp, "%s                             %s\n\n",asctime( localtime(&ltime) ), message );
+	
 }
