@@ -91,6 +91,8 @@ typedef struct FAPlayer{
 	receiverAddr_t *addr;
 	int capturedPlayers;
 	int Neutralized;
+	long int capturingTime;
+	int capturingHexCode;
 } FAPlayer_t;
 
 typedef struct GAPlayer{
