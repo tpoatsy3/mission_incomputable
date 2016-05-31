@@ -1,4 +1,5 @@
 # Field Agent
+A Pebble adventure game. 
 
 ##Team Topaz
 Virginia Cook, Ihab Basri, Kyra Maxwell and Ted Poatsy
