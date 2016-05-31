@@ -61,28 +61,31 @@ static const int BUFSIZE = 1024;
 static int socket_setup(char *GShost, int GSport, 
 							struct sockaddr_in *themp);
 static int handle_stdin(int comm_sock, struct sockaddr_in *themp, 
-		hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide, 
+	bool raw, FILE* log);
 static int internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp, 
-	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide, 
+	bool raw, FILE* log);
 
-char *createStatus(char *response, guideagent_t *thisGuide);
-char *createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide);
+char *createStatus(char *response, guideagent_t *thisGuide, bool raw, FILE* log);
+char *createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide, 
+	bool raw, FILE* log);
 
 static int handle_socket(int comm_sock, struct sockaddr_in *themp, 
-		hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide, 
+	bool raw, FILE* log);
 
 int parsingMessages(char* line, char ** messageArray, char *delimiter);
 void freeArray(char** array, int size);
 int copyValidKeywordsToQueryArray( char ** array, char* word, int count);
 
-void parseGameEnd (char **messageArray, int count);
+void parseGameEnd (char **messageArray, int count, bool raw, FILE* log);
 void updateGame (char **messageArray, int count, hashtable_t *agents, 
-		hashtable_t *codeDrops, guideagent_t *thisGuide);
+		hashtable_t *codeDrops, guideagent_t *thisGuide, bool raw, FILE* log);
 
-void updateAgents(char *message, hashtable_t *agents);
-void updateCodeDrops(char *message, hashtable_t *codeDrops);
+void updateAgents(char *message, hashtable_t *agents, bool raw, FILE* log);
+void updateCodeDrops(char *message, hashtable_t *codeDrops, bool raw, FILE* log);
 
-static void data_delete(void *data);
 static void fa_delete(void *data);
 static void cd_delete(void *data);
 
@@ -92,6 +95,10 @@ void agentPrint(void *key, void *data, void *farg);
 void codeDropsPrint(void *key, void *data, void *farg);
 
 int randomHex();
+bool isValidInt(char *intNumber);
+bool isValidFloat(char *floatNumber);
+
+void logger(FILE *fp, char* message);
 /******************** global types ************************/
 
 /************************** main() ************************/
@@ -154,6 +161,15 @@ main(const int argc, char *argv[])
 		printf("Error: GSport must be a number\n"); 
 		exit(2); 
 	}
+	
+	//Create logger file
+	char logText[1000]; 
+	sprintf(logText, "log/guideagent%ld.log", time(NULL) );
+	FILE *log; 
+	if ((log=fopen(logText, "a")) == NULL) {
+		printf("Error: Unable to create logfile");
+		exit(3);
+	 } 
 
 	// Initialize a hashtable of agents
 	// Where the agent's name is the key and a fieldagent data structure is the data
@@ -185,8 +201,9 @@ main(const int argc, char *argv[])
 	// update until the server returns a GAME_STATUS
 	bool gameStart = false;
 	while (!gameStart) {
-		internalUpdate(comm_sock, 1, &them, agents, codeDrops, thisGuide);
-		int resp = handle_socket(comm_sock, &them, agents, codeDrops, thisGuide);
+		internalUpdate(comm_sock, 1, &them, agents, codeDrops, thisGuide, raw, log);
+		int resp = handle_socket(comm_sock, &them, agents, codeDrops, thisGuide, 
+				raw, log);
 		if (resp == 1) { // got a GAME_STATUS
 			gameStart = true;
 		} else {
@@ -235,15 +252,18 @@ or a 0 to send your game status without recieving an update\n");
 		
 		//After 60 seconds with no communication send an update to the GS
 		} else if (select_response == 0) {
-			internalUpdate(comm_sock, 0, &them, agents, codeDrops, thisGuide);
+			internalUpdate(comm_sock, 0, &them, agents, codeDrops, thisGuide, 
+				raw, log);
 		} else if (select_response > 0) {
 			// some data is ready on either source, or both
 			if (FD_ISSET(0, &rfds)) 
-				if (handle_stdin(comm_sock, &them, agents, codeDrops, thisGuide) == EOF)
+				if (handle_stdin(comm_sock, &them, agents, codeDrops, thisGuide, 
+						raw, log) == EOF)
 					break; // exit loop if EOF on stdin
 
 			if (FD_ISSET(comm_sock, &rfds)) {
-				handle_socket(comm_sock, &them, agents, codeDrops, thisGuide);
+				handle_socket(comm_sock, &them, agents, codeDrops, thisGuide, 
+						raw, log);
 			}
 
 			// print a fresh prompt
@@ -256,10 +276,8 @@ or a 0 to send your game status without recieving an update\n");
 
 	printf("Made it through what's been written");
 	
-	if(agents != NULL)
-			hashtable_delete(agents);
-	if(codeDrops != NULL)
-		hashtable_delete(codeDrops);
+	hashtable_delete(agents);
+	hashtable_delete(codeDrops);
 
 	free(thisGuide->gameId);
 	free(thisGuide);	
@@ -320,7 +338,7 @@ socket_setup(char *GShost, int GSport, struct sockaddr_in *themp)
 
 static int
 handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents, 
-	hashtable_t *codeDrops, guideagent_t *thisGuide)
+	hashtable_t *codeDrops, guideagent_t *thisGuide, bool raw, FILE* log)
 {
 	int retVal = -1; // int to be returned
 	//socket has input ready
@@ -346,22 +364,20 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 				sender.sin_port == themp->sin_port) {
 				//parse the message
 				if(strcmp(buf,"\0") != 0) {
+					if (raw)
+						logger(log, buf);
 					char *messageArray[20];
 					int count = parsingMessages(buf, messageArray, "|");
-					for (int i = 0; i < count; i++) {
-						printf(messageArray[i]);
-						printf(" ");
-					}
-					printf("\n");
 					if (strcmp(messageArray[0], "GAME_STATUS") == 0) {
 						//Empty current hashtables
-						hash_iterate(agents, freeAgents, NULL);
-						hash_iterate(codeDrops, freeDrops, NULL);
+						//hash_iterate(agents, freeAgents, NULL);
+						//hash_iterate(codeDrops, freeDrops, NULL);
 
-						updateGame(messageArray, count, agents, codeDrops, thisGuide);
+						updateGame(messageArray, count, agents, codeDrops, thisGuide,
+									raw, log);
 						retVal = 1;
 					} else if (strcmp(messageArray[0], "GAME_OVER") == 0) {
-						parseGameEnd(messageArray, count);
+						parseGameEnd(messageArray, count, raw, log);
 						retVal = 2;
 					} else if (strcmp(messageArray[0], "GS_RESPONSE") == 0) {
 						for (int i = 0; i < count-1; i++) {
@@ -395,7 +411,7 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
  */
 static int
 handle_stdin(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
-	hashtable_t *codeDrops, guideagent_t *thisGuide)
+	hashtable_t *codeDrops, guideagent_t *thisGuide, bool raw, FILE* log)
 {
 	char *response = readline(stdin);
 	if (response == NULL) 
@@ -417,14 +433,16 @@ handle_stdin(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 	}
 	printf("Count in std in %d\n", count);
 	if ( count == 1) 
-		OPCODE = createStatus(toParse, thisGuide);
+		OPCODE = createStatus(toParse, thisGuide, raw, log);
 	else if (count == 2) {
 		printf("RESPONSE %s\n", toParse);
-		OPCODE = createHint(toParse, agents, thisGuide); 
+		OPCODE = createHint(toParse, agents, thisGuide, raw, log); 
 	} else { 
 		printf("Sorry that message doesn't seem to be formatted correctly");}
 	if (OPCODE != NULL) {
-		printf("%s\n", OPCODE);;
+		printf("%s\n", OPCODE);
+		if(raw)
+			logger(log, OPCODE);
 		if (sendto(comm_sock, OPCODE, strlen(OPCODE), 0, 
 					(struct sockaddr *) themp, sizeof(*themp)) < 0){
 			printf("Error: sending in datagram socket");
@@ -441,7 +459,8 @@ handle_stdin(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 /************************ internalUpdate *****************/
 static int
 internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp, 
-	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide)
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide, 
+	bool raw, FILE* log)
 {
 
 	if (themp->sin_family != AF_INET) {
@@ -458,9 +477,11 @@ internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp,
 		printf("Error: statusreq must be a zero or a one");
 		return -1;
 	}
-	OPCODE = createStatus(response, thisGuide);
+	OPCODE = createStatus(response, thisGuide, raw, log);
 	if (OPCODE != NULL) {
-		printf("%s\n", OPCODE);;
+		printf("%s\n", OPCODE);
+		if (raw)
+			logger(log, OPCODE);
 		if (sendto(comm_sock, OPCODE, strlen(OPCODE), 0, 
 					(struct sockaddr *) themp, sizeof(*themp)) < 0){
 			printf("Error: sending in datagram socket");
@@ -478,7 +499,7 @@ internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp,
  */
 
 char *
-createStatus(char *response, guideagent_t *thisGuide)
+createStatus(char *response, guideagent_t *thisGuide, bool raw, FILE* log)
 {
 	char *gameId = thisGuide->gameId;
 	char *guideId = thisGuide->id;
@@ -521,7 +542,8 @@ createStatus(char *response, guideagent_t *thisGuide)
  * GA_HINT|gameId|guideId|teamName|playerName|pebbleId|message
  */
 char *
-createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide)
+createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide, 
+		bool raw, FILE* log)
 {
 	char *pebbleId;
 	char *message;
@@ -642,13 +664,13 @@ copyValidKeywordsToQueryArray( char ** array, char* word, int count)
 }
 
 void
-parseGameEnd (char **messageArray, int count) {
+parseGameEnd (char **messageArray, int count, bool raw, FILE* log) {
 
 }
 
 void
 updateGame (char **messageArray, int count, hashtable_t *agents, hashtable_t *codeDrops,
-		guideagent_t *thisGuide) 
+		guideagent_t *thisGuide, bool raw, FILE* log) 
 {
 	if (strcmp(thisGuide->gameId,"0") == 0) { // Haven't gotten the gameId yet
 		thisGuide->gameId = malloc(strlen(messageArray[1]) + 1);
@@ -661,14 +683,14 @@ updateGame (char **messageArray, int count, hashtable_t *agents, hashtable_t *co
 		char *dropsUpdate = malloc(strlen(messageArray[3]) +1);
 		strcpy(dropsUpdate, messageArray[3]);
 		
-		updateAgents(agentsUpdate, agents);
-		updateCodeDrops(dropsUpdate, codeDrops);
+		updateAgents(agentsUpdate, agents, raw, log);
+		updateCodeDrops(dropsUpdate, codeDrops, raw, log);
 	}
 	if (count == 3) { //There are only codeDrops no agents
 		char *dropsUpdate = malloc(strlen(messageArray[2]) +1);
 		strcpy(dropsUpdate, messageArray[2]);
 
-		updateCodeDrops(dropsUpdate, codeDrops);
+		updateCodeDrops(dropsUpdate, codeDrops, raw, log);
 	}
 	hash_iterate(agents, agentPrint, NULL);
 	hash_iterate(codeDrops, codeDropsPrint, NULL);
@@ -677,7 +699,7 @@ updateGame (char **messageArray, int count, hashtable_t *agents, hashtable_t *co
 }
 
 void 
-updateAgents(char *message, hashtable_t *agents) 
+updateAgents(char *message, hashtable_t *agents, bool raw, FILE* log) 
 {
 	char *agentsRecieved[50];//Assuming there are no more than 50 agents
 	int agentCount = parsingMessages(message, agentsRecieved, ":");
@@ -697,43 +719,78 @@ updateAgents(char *message, hashtable_t *agents)
 
 		else {
 			//Look for the agent in the hashtable, (name should be in the third spot)
-			//fieldagent_t *current = hashtable_find(agents, agentUpdate[2]);
+			fieldagent_t *current = hashtable_find(agents, agentUpdate[0]);
 
 			//Create temp variables for the non char* parameters
-			double lat;
-			double lng;
-			double lastcontact;
+			float lat;
+			float lng;
+			float lastcontact;
 			
-			//if (current == NULL) {
-				//fieldagent doesn't exist, so create new data for it
-			fieldagent_t *current = malloc(sizeof(fieldagent_t));
-
-			//Use given params to fill in the new field agent	
-			sscanf(agentUpdate[4], "%lf", &lat);
-			sscanf(agentUpdate[5], "%lf", &lng);
-			sscanf(agentUpdate[6], "%lf", &lastcontact);
-			
-			current->team = malloc(strlen(agentUpdate[1]) +1);
-			strcpy(current->team, agentUpdate[1]);
-			current->name = malloc(strlen(agentUpdate[2]) +1);
-			strcpy(current->name, agentUpdate[2]);
-			current->status = malloc(strlen(agentUpdate[3]) +1);
-			strcpy(current->status, agentUpdate[3]);
-			
-			current->lat = lat;
-			current->lng = lng;
-			current->lastcontact = lastcontact;
+			if (current == NULL) {
+				//Check Params
+				if(isValidFloat(agentUpdate[4]) && isValidFloat(agentUpdate[5]) &&
+						isValidFloat(agentUpdate[6])) {
+					sscanf(agentUpdate[4], "%f", &lat);
+					sscanf(agentUpdate[5], "%f", &lng);
+					sscanf(agentUpdate[6], "%f", &lastcontact);
 				
-			//insert new fieldagent into the hashtable
-			hashtable_insert(agents, agentUpdate[0], current);
+					//fieldagent doesn't exist, so create new data for it
+					current = malloc(sizeof(fieldagent_t));
+
+					//Use given params to fill in the new field agent	
 			
+					current->team = malloc(strlen(agentUpdate[1]) +1);
+					strcpy(current->team, agentUpdate[1]);
+					current->name = malloc(strlen(agentUpdate[2]) +1);
+					strcpy(current->name, agentUpdate[2]);
+					current->status = malloc(strlen(agentUpdate[3]) +1);
+					strcpy(current->status, agentUpdate[3]);
+			
+					current->lat = lat;
+					current->lng = lng;
+					current->lastcontact = lastcontact;
+					
+					//insert new fieldagent into the hashtable
+					hashtable_insert(agents, agentUpdate[0], current);
+				} else {
+					printf("Error: Incorrectly formatted parameters for Agent '%s'\n", 
+						agentUpdate[2]);
+				}	
+			
+			} else {
+				// Check params
+				if(isValidFloat(agentUpdate[4]) && isValidFloat(agentUpdate[5]) &&
+						isValidFloat(agentUpdate[6])) {
+					sscanf(agentUpdate[4], "%f", &lat);
+					sscanf(agentUpdate[5], "%f", &lng);
+					sscanf(agentUpdate[6], "%f", &lastcontact);
+					
+					free(current->name);
+					free(current->status);
+					free(current->team);
+			
+			
+					current->team = malloc(strlen(agentUpdate[1]) +1);
+					strcpy(current->team, agentUpdate[1]);
+					current->name = malloc(strlen(agentUpdate[2]) +1);
+					strcpy(current->name, agentUpdate[2]);
+					current->status = malloc(strlen(agentUpdate[3]) +1);
+					strcpy(current->status, agentUpdate[3]);
+			
+					current->lat = lat;
+					current->lng = lng;
+					current->lastcontact = lastcontact;
+				} else {
+					printf("Error: Incorrectly formatted parameters for Agent '%s'\n", 
+						agentUpdate[2]);
+				}	
+			}
 		} freeArray(agentUpdate, paramCount);
 	}
-	//freeArray(agentsRecieved, agentCount);
 }
 
 void 
-updateCodeDrops(char *message, hashtable_t *codeDrops) 
+updateCodeDrops(char *message, hashtable_t *codeDrops, bool raw, FILE* log) 
 {
 	char *codeDropsRecieved[50];//Assuming there are no more than 50 codeDrops
 	int dropCount = parsingMessages(message, codeDropsRecieved, ":");
@@ -755,43 +812,71 @@ updateCodeDrops(char *message, hashtable_t *codeDrops)
 
 		else {
 			//Look for the code drop in the hashtable, (id should be in the first spot)
-			//codedrop_t *current = hashtable_find(codeDrops, dropUpdate[0]);
+			codedrop_t *current = hashtable_find(codeDrops, dropUpdate[0]);
 
 			//Create temp variables for the non char* parameters
-			double lat;
-			double lng;
+			float lat;
+			float lng;
 			
-			codedrop_t *current = malloc(sizeof(codedrop_t));
+			if(current == NULL) {
+				current = malloc(sizeof(codedrop_t));
 
-			//Use given params to fill in the new field agent	
-			sscanf(dropUpdate[1], "%lf", &lat);
-			sscanf(dropUpdate[2], "%lf", &lng);
-			current->team = malloc(strlen(dropUpdate[3]) +1);
-			strcpy(current->team, dropUpdate[3]);
-			if (strcmp(current->team, "NONE") == 0)
-				current->status = "active";
-			else
-				current->status = "neutralized";
-			current->lat = lat;
-			current->lng = lng;
+				//Use given params to fill in the new field agent	
+				if(isValidFloat(dropUpdate[1]) && isValidFloat(dropUpdate[2])) {
+					sscanf(dropUpdate[1], "%f", &lat);
+					sscanf(dropUpdate[2], "%f", &lng);
+				
+					current->team = malloc(strlen(dropUpdate[3]) +1);
+					strcpy(current->team, dropUpdate[3]);
+					if (strcmp(current->team, "NONE") == 0)
+						current->status = "active";
+					else
+						current->status = "neutralized";
+					current->lat = lat;
+					current->lng = lng;
 
-			//insert new fieldagent into the hashtable
-			hashtable_insert(codeDrops, dropUpdate[0], current);
-			
+					//insert new fieldagent into the hashtable
+					hashtable_insert(codeDrops, dropUpdate[0], current);
+				} else {
+					printf("Error: Incorrectly formatted parameters for drop '%s'", 
+							dropUpdate[0]);
+				}
+
+			} else {
+				//Use given params to fill in the new field agent	
+				if(isValidFloat(dropUpdate[1]) && isValidFloat(dropUpdate[2])) {
+					sscanf(dropUpdate[1], "%f", &lat);
+					sscanf(dropUpdate[2], "%f", &lng);
+					bool wasActive = false;
+					 //To tell if a drop was netralized
+					if(strcmp(current->status,"active") == 0)
+						wasActive = true;
+					free(current->team);
+					
+					current->team = malloc(strlen(dropUpdate[3]) +1);
+					strcpy(current->team, dropUpdate[3]);
+					if (strcmp(current->team, "NONE") == 0)
+						current->status = "active";
+					else {
+						current->status = "neutralized";
+						if (wasActive && !raw)
+							logger(log, "Code Drop %s was neutralized");
+					}
+					current->lat = lat;
+					current->lng = lng;
+				} else {
+					printf("Error: Incorrectly formatted parameters for drop '%s'", 
+							dropUpdate[0]);
+				}
+			}			
+				
 		}
 		freeArray(dropUpdate, paramCount);	
 	}
 	freeArray(codeDropsRecieved, dropCount);
 }
 
-/*************** Destructor function ****************/
-static void 
-data_delete(void *data)
-{
-	if (data) {
-		free(data);	
-	}
-}
+/*************** Destructor functions ****************/
 
 static void
 cd_delete(void *data)
@@ -817,7 +902,7 @@ void
 freeDrops(void *key, void *data, void *farg)
 {
 	if (data != NULL){
-		free(((codedrop_t *) data)->status);
+		//free(((codedrop_t *) data)->status);
 		free(((codedrop_t *) data)->team);
 		free(data);
 	}
@@ -873,4 +958,49 @@ randomHex()
 	srand((unsigned) time(&t));
 	
 	return rand() % 65536;
+}
+
+bool 
+isValidInt(char *intNumber)
+{
+
+	int validInt = 0;
+	char * isDigit;
+	
+	if ((isDigit = malloc(strlen(intNumber) +1)) == NULL) return false; //NULL to check
+	
+	//if intNumber given is an integer & between 0 and max
+	if(sscanf(intNumber, "%d%s", &validInt, isDigit) != 1) {
+		free(isDigit);
+		return false;
+	} else {
+		free(isDigit);
+		return true;
+	}
+	return true;
+}
+bool 
+isValidFloat(char *floatNumber){	
+	double validFloat = 0;
+	char * isDigit;
+	if((isDigit = malloc(strlen(floatNumber) +1)) == NULL) return false; //NULL to check
+	
+	
+	//if depth given is an integer & between 0 and max
+	if(sscanf(floatNumber, "%lf%s", &validFloat, isDigit) != 1) {
+		free(isDigit);
+		return false;
+	} else {
+		free(isDigit);
+		return true;
+	}
+	return true;
+}
+
+void 
+logger(FILE *fp, char* message)
+{
+	time_t ltime; /* calendar time */
+	ltime=time(NULL); /* get current cal time */
+	fprintf(fp, "%s%s\n\n",asctime( localtime(&ltime)), message);
 }
