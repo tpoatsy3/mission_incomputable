@@ -17,6 +17,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdbool.h>
+#include <time.h>		// logging and creating random hexs
 #include <unistd.h>	      // read, write, close
 #include <string.h>	      // strlen
 #include <strings.h>	      // bcopy, bzero
@@ -61,8 +62,12 @@ static int socket_setup(char *GShost, int GSport,
 							struct sockaddr_in *themp);
 static int handle_stdin(int comm_sock, struct sockaddr_in *themp, 
 		hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
+static int internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp, 
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
+
 char *createStatus(char *response, guideagent_t *thisGuide);
 char *createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide);
+
 static int handle_socket(int comm_sock, struct sockaddr_in *themp, 
 		hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide);
 
@@ -81,6 +86,8 @@ static void data_delete(void *data);
 
 void agentPrint(void *key, void *data, void *farg);
 void codeDropsPrint(void *key, void *data, void *farg);
+
+int randomHex();
 /******************** global types ************************/
 
 /************************** main() ************************/
@@ -93,18 +100,53 @@ main(const int argc, char *argv[])
 			printf("usage: ./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GSport\n");
 			exit(1);
 	}
-	/*Add in support for switches later
-	 * char *currentParam;
-	 * for (int i = 1; i < argc; i++) {
-		
-	} */
+	
+	int count;
+	unsigned int hexcode;
+	char *hex;
+	char *flag;
+	bool raw = false;
+	bool flagsOkay = true;
+	for (int i = 1; i < argc; i++) {
+		//This is a flag
+		if(argv[i][0] == '-') {
+			if(flagsOkay){
+				if(strcmp(argv[i],"-v") == 0 || strcmp(argv[i], "-log=raw") == 0){
+					raw = true;
+				} else if (strlen(argv[i]) == 12) {
+					if (argv[i][1] == 'i' && argv[i][2] == 'd') {
+						if ((flag = strtok(argv[i], "=")) != NULL) {
+							if ((hex =strtok(NULL, "=")) != NULL) {
+								if(sscanf(hex, "%x", &hexcode) == 1)
+									printf("success, got %x\n", hexcode);
+								else
+									printf("Error: incorrectly formatted -id flag\n");
+							} else {
+								printf("Error: incorrectly formatted -id flag\n");
+							}
+						}
+					} else {
+						printf("Error: flag '%s' not recognized\n", argv[i]);
+					}
+				} else {
+					printf("Error: flag '%s' not recognized\n", argv[i]);
+				}
+			} else {
+				printf("Error: flags must come at the beginning\n");
+				exit(2); // must exit as this would alter the order of all params
+			}
+		} else {
+			if (flagsOkay)
+				count = i;
+			flagsOkay = false;
+		}
+	}
 
-	char *teamName = argv[1];
-	char *GShost = argv[3];
+	char *teamName = argv[count];
+	char *name = argv[count+1];
+	char *GShost = argv[count+2];
 	int GSport;
-	char *guideID = NULL;
-	char *name = argv[2];
-	if (sscanf(argv[4], "%d", &GSport) != 1) {
+	if (sscanf(argv[count+3], "%d", &GSport) != 1) {
 		printf("Error: GSport must be a number\n"); 
 		exit(2); 
 	}
@@ -119,10 +161,14 @@ main(const int argc, char *argv[])
 	
 	// create guide agent struct
 	guideagent_t *thisGuide = malloc(sizeof(guideagent_t)); 
-	if (guideID != NULL)
-		thisGuide->id = guideID;
-	else
-		thisGuide->id = "1234";//CREATE RANDOM HEX
+	char guideId[9]; // hexcode will not be more than 8 characters
+	if (hexcode != 0) {
+		sprintf(guideId, "%x", hexcode);
+		thisGuide->id = guideId;
+	} else {
+		sprintf(guideId, "%d", randomHex());
+		thisGuide->id = guideId;
+	}
 	thisGuide->teamName = teamName;	
 	thisGuide->gameId = "0";
 	thisGuide->name = name;
@@ -132,7 +178,18 @@ main(const int argc, char *argv[])
 	int comm_sock = socket_setup(GShost, GSport, &them);
 	
 	// send OPCODE notifying the server that a guide has joined
-
+	// update until the server returns a GAME_STATUS
+	bool gameStart = false;
+	while (!gameStart) {
+		internalUpdate(comm_sock, 1, &them, agents, codeDrops, thisGuide);
+		int resp = handle_socket(comm_sock, &them, agents, codeDrops, thisGuide);
+		if (resp == 1) { // got a GAME_STATUS
+			gameStart = true;
+		} else {
+			sprintf(guideId, "%d", randomHex());
+			thisGuide->id = guideId;
+		}
+	}
 
 	// Update logfile with initialization information (host and port)
 
@@ -142,7 +199,9 @@ main(const int argc, char *argv[])
 	// list_t *notifications = list_new(data_delete);
 
 	// Initial prompt
-	printf("Enter a hint in the format: playername|message\n");
+	printf("Enter a hint in the format: playername|message\n\
+or a 1 to send your game status and recieve an update\n\
+or a 0 to send your game status without recieving an update\n");
 	
 	// while game is in play
 	// read from either the socket or stdin, whichever is ready first;
@@ -152,7 +211,7 @@ main(const int argc, char *argv[])
 		// for use with select()
 		fd_set rfds;	      // set of file descriptors we want to read
 		struct timeval timeout;   // how long we're willing to wait
-		const struct timeval fivesec = {5,0};   // five seconds
+		const struct timeval sixtysec = {60,0};   // sixty seconds
     
 		// Watch stdin (fd 0) and the UDP socket to see when either has input.
 		FD_ZERO(&rfds);
@@ -161,7 +220,7 @@ main(const int argc, char *argv[])
 		int nfds = comm_sock+1;   // highest-numbered fd in rfds
 
 		// Wait for input on either source, up to five seconds.
-		timeout = fivesec;
+		timeout = sixtysec;
 		int select_response = select(nfds, &rfds, NULL, NULL, &timeout);
 		// note: 'rfds' updated, and value of 'timeout' is now undefined
     
@@ -170,12 +229,9 @@ main(const int argc, char *argv[])
 			perror("select()");
 			exit(9);
 		
-		/*For now - not sure if we need a timeout
-		 * } else if (select_response == 0) {
-			// timeout occurred; encourage our user to write
-			printf("? ");
-			fflush(stdout);
-		*/ 	
+		//After 60 seconds with no communication send an update to the GS
+		} else if (select_response == 0) {
+			internalUpdate(comm_sock, 0, &them, agents, codeDrops, thisGuide);
 		} else if (select_response > 0) {
 			// some data is ready on either source, or both
 			if (FD_ISSET(0, &rfds)) 
@@ -250,14 +306,16 @@ socket_setup(char *GShost, int GSport, struct sockaddr_in *themp)
  * 'themp' should be a valid address, ignore messages from other senders
  * return -1 on any socket error
  * return -2 on unexpected server
- * return 1 on successful message receipt
- * return 2 if the name is approved
+ * return 1 if GAME_STATUS
+ * return 2 if GAME_OVER
+ * return 3 if GS_RESPONSE
  */
 
 static int
 handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents, 
 	hashtable_t *codeDrops, guideagent_t *thisGuide)
 {
+	int retVal = -1; // int to be returned
 	//socket has input ready
 	struct sockaddr_in sender;		//sender of this message
 	struct sockaddr *senderp = (struct sockaddr *) &sender;
@@ -290,8 +348,10 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 					printf("\n");
 					if (strcmp(messageArray[0], "GAME_STATUS") == 0) {
 						updateGame(messageArray, count, agents, codeDrops, thisGuide);
+						retVal = 1;
 					} else if (strcmp(messageArray[0], "GAME_OVER") == 0) {
 						parseGameEnd(messageArray, count);
+						retVal = 2;
 					} else if (strcmp(messageArray[0], "GS_RESPONSE") == 0) {
 						for (int i = 0; i < count-1; i++) {
 							printf(messageArray[i]);
@@ -299,6 +359,7 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 						}
 						printf("%s\n", messageArray[count-1]);
 						freeArray(messageArray, count);
+						retVal = 3;
 					} else {
 						printf("Recieved invalid OPCODE from game server\n");
 						freeArray(messageArray, count);
@@ -310,7 +371,7 @@ handle_socket(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 			}	
 		}	
 	}
-	return 1;
+	return retVal;
 }
 
 /**************** handle_stdin ***********************/
@@ -359,6 +420,40 @@ handle_stdin(int comm_sock, struct sockaddr_in *themp, hashtable_t *agents,
 	free(response);
 	return 1;
 }
+
+static int
+internalUpdate(int comm_sock, int recieve, struct sockaddr_in *themp, 
+	hashtable_t *agents, hashtable_t *codeDrops, guideagent_t *thisGuide)
+{
+
+	if (themp->sin_family != AF_INET) {
+		printf("Error: server is not AF_INET.\n");
+		return 0;
+	} 
+	char *OPCODE;
+	char *response;
+	if (recieve == 0) {
+		response = "0";
+	} else if (recieve == 1) {
+		response = "1";
+	} else {
+		printf("Error: statusreq must be a zero or a one");
+		return -1;
+	}
+	OPCODE = createStatus(response, thisGuide);
+	if (OPCODE != NULL) {
+		printf("%s\n", OPCODE);;
+		if (sendto(comm_sock, OPCODE, strlen(OPCODE), 0, 
+					(struct sockaddr *) themp, sizeof(*themp)) < 0){
+			printf("Error: sending in datagram socket");
+			//return -1;
+			exit(3);
+		}
+	}
+	free(OPCODE);
+	return 1;
+}
+
 /************** createName ***********************/
 /* Puts the string from stdin in OPCODE form:
  * GA_STATUS|gameId|guideId|teamName|playerName|statusReq
@@ -370,39 +465,36 @@ createStatus(char *response, guideagent_t *thisGuide)
 	char *gameId = thisGuide->gameId;
 	char *guideId = thisGuide->id;
 	char *teamName = thisGuide->teamName;
+	char *name = thisGuide->name;
 	char *statusReq;
 	
-	if (strcmp(gameId, "0") == 0) { //The name has not been approved
-		statusReq = "1";
-	}
+	if(strcmp(response, "0") == 0 || strcmp(response, "1") == 0)
+		statusReq = response;
 	else {
-		if(strcmp(response, "0") == 0 || strcmp(response, "1") == 0)
-			statusReq = response;
-		else {
-			printf("Sorry that message doesn't seem to be formatted correctly");
-			return NULL;
-		}
+		printf("Sorry that message doesn't seem to be formatted correctly");
+		return NULL;
 	}
+	
 	//create the length for the OPCODE
 	int length = 15 + strlen(gameId) + strlen(guideId) + strlen(teamName) 
-		+ strlen(response) + strlen(statusReq);
-	char *name = calloc(length, sizeof(char));
+		+ strlen(name) + strlen(statusReq);
+	char *CODE = calloc(length, sizeof(char));
 	char *OPCODE = "GA_STATUS";
 	char *pipe = "|";
 	//Actually create the string
-	strcpy(name, OPCODE);
-	strcat(name, pipe);
-	strcat(name, gameId);
-	strcat(name, pipe);
-	strcat(name, guideId);
-	strcat(name, pipe);
-	strcat(name, teamName);
-	strcat(name, pipe);
-	strcat(name, response);
-	strcat(name, pipe);
-	strcat(name, statusReq);
+	strcpy(CODE, OPCODE);
+	strcat(CODE, pipe);
+	strcat(CODE, gameId);
+	strcat(CODE, pipe);
+	strcat(CODE, guideId);
+	strcat(CODE, pipe);
+	strcat(CODE, teamName);
+	strcat(CODE, pipe);
+	strcat(CODE, name);
+	strcat(CODE, pipe);
+	strcat(CODE, statusReq);
 	
-	return name;
+	return CODE;
 }
 
 /*************** createHint **********************/
@@ -731,4 +823,15 @@ codeDropsPrint(void *key, void *data, void *farg)
 	printf("%lf",current->lng);
 	printf(current->status);
 	printf(current->team);
+}
+
+int
+randomHex()
+{
+	time_t t;
+	   
+	/* Intializes random number generator */
+	srand((unsigned) time(&t));
+	
+	return rand() % 65536;
 }
