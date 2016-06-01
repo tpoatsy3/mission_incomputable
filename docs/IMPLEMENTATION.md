@@ -63,53 +63,56 @@
 
 – List Struct: holds messages recieved by the server
 
-
-## Guide Agent
-### Pseudocode
+# Guide Agent
+## Pseudocode
 1. execute from the commandline with usage syntax
-    - `./guideagent [-log=raw] teamName GShost GSport [guideId]`
-    - where `-log=raw` is the optional logging mode
-    - where `teamName` is the Team name
-    - where `GShost` is the Game Server host
-    - where `GSport` is the Game Server port number
-    - where `guideId` is the optional guideId
-2. Create a logfile
-3. look up the Game Server host  
-4. if host is null  
-    - error and quit 
-5. initialize fields for the server address  
-6. create the socket  
-7. send OPCODE notifying the server that a guide has joined
-8. Recieve and save gameNumber
-9. Update logfile with initialization information (host and port)
-10. create guide agent struct
-11. Initialize a hashtable of agents
-12. Initialize a hashtable of code drops
-13. Initialize a list of notifications
-14. while game is in play  
-    1. draw GUI using gtk
-        1. For each agent in the hashtable draw their location on the map
-        2. For each code drop in the hashtable draw its location on the map
-    2. using select wait for input from either the server or the guide   
-    3. if OPCODE is recieved 
-        1. if in raw-mode
-            - log the OPCODE
-        1. parse OPCODE - tokenize by pipes   
-        2. validate that OPCODE was correctly formatted/acceptable  
-        3. if code drop was updated (only update *should* be neutralization)
-            1. update code drop in the code drop hashtable 
-            2. log code drop neutralization
-        4. if agent struct was updated  
-            1. update agent struct in the agent hashtable  
-            2. if agent was captured or new agent joined
-                - log capture/join in logfile
-        5. add notification to the list of notifications  
-        6. updateGUI  
-    4. if hint is entered  
-        1. read hint and verify length
-        2. create properly formattedOPCODE
-        3. pass OPCODE to the game server  
-15. close the socket
+    - `./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GSport`
+    - where -log=raw or -v is the optional verbose logging mode
+    - where-id=######## is the optional guideId
+    - where teamName is the Team name
+    - wher playerName is the Guide Agent's chosen name
+    - where GShost is the Game Server host
+    - where GSport is the Game Server port number  
+2. Parse flags and check for errors
+3. Parse other parameters and check for errors
+4. Create a log file 
+5. Create the codeDrops and agents hashtables
+6. Create and fill the guideAgent struct
+    - Call randomHex() if necessary to create a guideId
+7. Call socket_setup
+    1.
+8. Make the initial log to the logfile
+9. While the guideId hasn't been approved
+    1. Call internalUpdate to send OPCODE notifying the server that a guide has joined 
+    2. Wait for the server's response
+        1. If the guideId is not approved generate a new one and try again
+        2. If there is some other error, exit
+        3. If the guideId is approved
+            - Recieve and save gameNumber
+10. while game is in play
+    1. using select wait for input from either the server or the guide
+    2. if there is data from the server call handle_socket
+        3. if OPCODE is recieved
+            1. if in raw-mode
+                - log the OPCODE
+        2. parse OPCODE - tokenize into an array by pipes
+            1. If it is a "GAME_STATUS" call updateGame()
+                1. if code drops were updated call updateCodeDrops
+                    1. for each code drop
+                        1. verify numerical parameters
+                        2. update code drop in the code drop hashtable
+                        3. if code drop was neutralized
+                            - log any code drop neutralization
+            2. if agents were updated call updateAgents
+                1. for each agent
+                    1. verify numerical parameters 
+                    2. update agent in the agent hashtable
+                    3. if agent was captured or new agent joined
+                        - log capture/join in logfile
+            2. If it is a "GAME_OVER" call parseGameEnd()
+                1. Parse and print game end stats to std out
+                2. Exit the game
+            3. If it is a "GS_RESPONSE" print to stdout
 
 ### Data Structures
 - Field Agent Struct: Stores a name, status, location, and team
