@@ -24,28 +24,58 @@ FA_LOCATION|1|1458|topaz4|Ted7|43.70662|-72.05000|1
 FA_LOCATION|1|1458|topaz4|Ted7|43.70662|-72.05000|1
 
 
+F20E, 43.704259, -72.289328
+F20D, 43.705259, -72.288328
+F20C, 43.706259, -72.287328
+KKKK, 43.707259, -72.286328
+F202, 43.708259, -72.285328
+86DB, 43.706552, -72.000000
+
+
 Join the game
 FA_LOCATION|0|1|topaz|Alex|43|-72|1
 FA_LOCATION|0|2|topaz|Benn|43|-72|1
 FA_LOCATION|0|3|topaz|Chad|44|-72|1
 FA_LOCATION|0|4|topaz|Dane|43|-72|1
-
 FA_LOCATION|0|5|ruby|Mike|43|-72|1
 FA_LOCATION|0|6|ruby|Nick|44|-72|1
 FA_LOCATION|0|7|ruby|Otto|43|-72|1
-
 FA_LOCATION|0|10|diamond|Zeta|43|-72|1
 FA_LOCATION|0|11|diamond|Yeti|44|-72|1
 FA_LOCATION|0|12|diamond|Xena|43.704259|-72.289328|1
 
+
+FA_LOCATION|111F|3|topaz|Chad|43.705259|-72.288328|1
+FA_LOCATION|111F|4|topaz|Dane|43.706259|-72.287328|1
+
+FA_NEUTRALIZE|111F|3|topaz|Chad|43.705259|-72.288328|F20D
+FA_NEUTRALIZE|111F|4|topaz|Dane|43.706259|-72.287328|F20C
+
+GA_STATUS|0|1994|diamond|Zenon|1
+GA_STATUS|0|1995|topaz|Abe|1
+GA_STATUS|0|1996|ruby|Nate|1
+
+GA_STATUS|111F|1994|diamond|Zenon|1
+
+
 FA_CAPTURE|111F|1|topaz|Alex|0
+FA_NEUTRALIZE|111F|12|diamond|Xena|43.704259|-72.289328|F20E
+GA_STATUS|0|1994|diamond|Zenon|1
+GA_STATUS|0|1995|topaz|Abe|1
+GA_STATUS|0|1996|ruby|Nate|1
+GA_STATUS|111F|1994|diamond|Zenon|1
+GA_HINT|111F|1994|diamond|Zenon|*|THIS IS GREAT
+GA_HINT|111F|1994|diamond|Zenon|11|THIS IS GREAT
 
-FA_NEUTRALIZE|111F|12|diamond|Xena|43.704259|-72.289328|61966
+void GAGameStatusFriendlyIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusCodeIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusCodeHashIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusEnemyIteratorThree(void *key, void* data, void* farg);
+void GAGameStatusEnemyHashIteratorThree(void *key, void* data, void* farg);
 
-
-
-
-
+43.708259, -72.285328, F202
+43.707259, -72.286328, KKKK
+43.706552, -72, 86DB
 
 FA_LOCATION|1|12|diamond|Xena|43.704259|-72.289328|1
 
