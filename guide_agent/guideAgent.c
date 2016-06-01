@@ -5,7 +5,7 @@
  * Read messages from stdin(Later GUI) and sen them as OPCODEs to server at host/port
  * Read messages from the UDP socket and parse them to update the GUI
  *
- * usage: ./guideAgent [-v|-log=raw] [-id=########] teamName GShost GSport
+ * usage: ./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GSport
  *
  * Topaz, May 2016
  *
@@ -101,7 +101,7 @@ main(const int argc, char *argv[])
 						if ((flag = strtok(argv[i], "=")) != NULL) {
 							if ((hex =strtok(NULL, "=")) != NULL) {
 								if(sscanf(hex, "%x", &hexcode) == 1)
-									printf("success, got %x\n", hexcode);
+									;
 								else
 									printf("Error: incorrectly formatted -id flag\n");
 							} else {
@@ -153,10 +153,14 @@ main(const int argc, char *argv[])
 	// Initialize a hashtable of agents
 	// Where the agent's pebbleid is the key and a fieldagent data structure is the data
 	hashtable_t *agents = hashtable_new(50, fa_delete, NULL);
+	if(agents == NULL)
+			exit(12); //Unable to malloc hashtable - exit
 
 	// Initialize a hashtable of code drops
 	// Where the code drop's id is the key and a codeDrop data structure is the data
 	hashtable_t *codeDrops = hashtable_new(50, cd_delete, NULL);
+	if (codeDrops == NULL)
+		exit(12); //Unable to malloc hashtable - exit
 	
 	// create guide agent struct
 	guideagent_t *thisGuide;
@@ -196,7 +200,7 @@ main(const int argc, char *argv[])
 		exit(11); //malloc has failed
 	sprintf(toLog, "Initialized on port %s with host %s", GSportChar, GShost);
 	logger(log, toLog);
-
+	free(toLog);
 	// send OPCODE notifying the server that a guide has joined
 	// update until the server returns a GAME_STATUS
 	// meaning the guide's id has been approved
@@ -267,7 +271,7 @@ or a 0 to send your game status without recieving an update\n");
 		
 		//After 60 seconds with no communication automatically send an update to the GS
 		} else if (select_response == 0) {
-			if (internalUpdate(comm_sock, 1, &them, agents, codeDrops, thisGuide, 
+			if (internalUpdate(comm_sock, 0, &them, agents, codeDrops, thisGuide, 
 					raw, log) == -1) {
 				printf("Error: Socket Error in internalUpdate");
 				exit(6);
@@ -638,12 +642,14 @@ createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide,
 	// check that the agent the user is trying to send to exists
 	// and is on the user's team
 	fieldagent_t *agent;
-	if ((agent = hashtable_find(agents, pebbleId)) == NULL) {
-		printf("Sorry that agent doesn't exist\n");
-		return NULL;
-	} else if (strcmp(agent->team, thisGuide->teamName) != 0) {
-		printf("You can only send hints to agents on your team, %s\n", thisGuide->teamName);
-		return NULL;
+	if (strcmp(pebbleId, "*") != 0) {
+		if ((agent = hashtable_find(agents, pebbleId)) == NULL) {
+			printf("Sorry that agent doesn't exist\n");
+			return NULL;
+		} else if (strcmp(agent->team, thisGuide->teamName) != 0) {
+			printf("You can only send hints to agents on your team, %s\n", thisGuide->teamName);
+			return NULL;
+		}
 	}
    	
 	// get relevant information from the guideAgent struct
@@ -686,34 +692,37 @@ createHint(char *response, hashtable_t *agents, guideagent_t *thisGuide,
 void
 parseGameEnd (char **messageArray, int count, bool raw, FILE* log) {
 	printf("----------GAME OVER----------\n");
-	printf("Game Id %s\n", messageArray[1]);
-	printf("Number of Remaining Code Drops %s\n", messageArray[2]);
+	if(count >  3) {
+			printf("Game Id %s\n", messageArray[1]);
+			printf("Number of Remaining Code Drops %s\n", messageArray[2]);
+	}
+	if(count > 4) {
+		char *teamsRecieved[50]; // Assuming there are no more than 50 teams
+		int teamCount = parsingMessages(messageArray[3], teamsRecieved, ":");
 	
-	char *teamsRecieved[50]; // Assuming there are no more than 50 teams
-	int teamCount = parsingMessages(messageArray[3], teamsRecieved, ":");
-	
-	// Iterate through all the teams that have been passed
-	for (int i = 0; i < teamCount; i++) {
-		char *teamStats[10]; // Should only be stats passed
-		// Split the game stats by comma and put them into an array 
-		 int statCount = parsingMessages(teamsRecieved[i], teamStats, ",");
-		 // check that there are 5 stats
-		 if (statCount != 5) { 
-			printf("Error: Server sent wrong number of stats\n");
-			return; 
-		 // assumes that the stats are in the correct order
-		 } else {
-			printf("Team Name : %s\n", teamStats[0]);
-			printf("Number of Players : %s\n", teamStats[1]);
-			printf("Number of Captures : %s\n", teamStats[2]);
-			printf("Number Captured : %s\n", teamStats[3]);
-			printf("Number of Drops Neutralized : %s\n", teamStats[4]);
-		 }
+		// Iterate through all the teams that have been passed
+		for (int i = 0; i < teamCount; i++) {
+			char *teamStats[10]; // Should only be stats passed
+			// Split the game stats by comma and put them into an array 
+			 int statCount = parsingMessages(teamsRecieved[i], teamStats, ",");
+			 // check that there are 5 stats
+			 if (statCount != 5) { 
+				printf("Error: Server sent wrong number of stats\n");
+				return; 
+			 // assumes that the stats are in the correct order
+			 } else {
+				printf("Team Name : %s\n", teamStats[0]);
+				printf("Number of Players : %s\n", teamStats[1]);
+				printf("Number of Captures : %s\n", teamStats[2]);
+				printf("Number Captured : %s\n", teamStats[3]);
+				printf("Number of Drops Neutralized : %s\n", teamStats[4]);
+			 }
 		// clean up the arrays
 		freeArray(teamStats, statCount);
-	}
-	// clean up the arrays continued
-	freeArray(teamsRecieved, teamCount);
+		}
+		// clean up the arrays continued
+		freeArray(teamsRecieved, teamCount);
+	}	
 	freeArray(messageArray, count);
 }
 
