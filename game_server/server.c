@@ -791,28 +791,68 @@ void handle_socket(hashStruct_t *allGameInfo){
 // directs the message (in the form of a messageArray) to the appropriate message handler according to OPCODE
 bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	
-
+	//Comparing the first argument in the array with the standard OPCODEs
 	if(strcmp(messageArray[0], "FA_LOCATION") == 0){
-		//return to user
 		FA_LOCATION_handler(allGameInfo, messageArray, arraySize, playerAddr); //these params are a model for the rest
 		return true;
 	} else if(strcmp(messageArray[0], "FA_NEUTRALIZE") == 0){
-		//return to user
 		FA_NEUTRALIZE_handler(allGameInfo, messageArray, arraySize, playerAddr);
 		return true;
 	} else if(strcmp(messageArray[0], "FA_CAPTURE") == 0){
-		// People based on Location and Status and Team
 		FA_CAPTURE_handler(allGameInfo, messageArray, arraySize, playerAddr);
+		return true;
 	} else if(strcmp(messageArray[0], "GA_STATUS") == 0){
-	//Back to the user
-	GA_STATUS_handler(allGameInfo, messageArray, arraySize, playerAddr);
+		GA_STATUS_handler(allGameInfo, messageArray, arraySize, playerAddr);
+		return true;
 	} else if(strcmp(messageArray[0], "GA_HINT") == 0){
-		//Either one FA or all on team
 		GA_HINT_handler(allGameInfo, messageArray, arraySize, playerAddr);
 		return true;
 	} else {
 		GSResponseHandler(allGameInfo, playerAddr, "Please enter a proper OPCODE",  "MI_ERROR_INVALID_OPCODE");
 		return false;
+	}
+	return false;
+}
+
+// since all OPCODEs that the Server recieves have the same first five fields, this is a function that checks indexes
+// one through 4. It does not check the opcode other than to determine whether a player should be added.
+bool validateArgumentsOneThroughFour(hashStruct_t *allGameInfo, char** messageArray, receiverAddr_t *playerAddr){
+	
+	int gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
+	int playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
+
+	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return false;
+
+	if (((strcmp(messageArray[0], "FA_LOCATION")) == 0) || ((strcmp(messageArray[0], "GA_STATUS")) == 0)){
+		if (gameIDFlag == -1){
+			return false;
+		} else if(playerIDFlag == -1){
+			return false;
+		} else if (playerIDFlag == 2){
+			return false;
+		} else if ((gameIDFlag == 1) && (playerIDFlag == 1)){
+			addPlayer(allGameInfo, messageArray, playerAddr);
+			return true;
+		} else if ((gameIDFlag == 1) && (playerIDFlag != 1)){
+			GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
+			return false;
+		} else if ((gameIDFlag != 1) && (playerIDFlag == 1)){
+			GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
+			return false;
+		} 
+		return true;
+	}
+	else {
+		if ((gameIDFlag != 0) || (playerIDFlag != 0)){
+			if (gameIDFlag == 1){
+			GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
+			return false;
+			} else if (gameIDFlag != 1){
+				GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
+				return false;
+			}
+		}
+		return true;
 	}
 	return true;
 }
@@ -821,27 +861,15 @@ bool processing(hashStruct_t *allGameInfo, char** messageArray, int arraySize, r
 // handles all messages with the OPCODE "FA_LOCATION"
 void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
 	//returns a message to the sender
-	int gameIDFlag, playerIDFlag, statusFlag;
+	int statusFlag;
 
+	// Checking for the correct size of the messageArray.
 	if (arraySize != 8){
 		GSResponseHandler(allGameInfo, playerAddr, "you need 8 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
 		return;
 	}
 
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
-
-	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
-
-
-	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
-
-
-	if (playerNameHandler(allGameInfo, messageArray,playerAddr)) {
-		printf("player true\n");
-	} else {
-		printf("player false\n");
-		return;
-	}
+	if (!validateArgumentsOneThroughFour(allGameInfo, messageArray, playerAddr)) return;
 	
 	if (latHandler(messageArray,playerAddr, allGameInfo)){
 		printf("lat true\n");
@@ -858,23 +886,6 @@ void FA_LOCATION_handler(hashStruct_t *allGameInfo, char** messageArray, int arr
 	}
 
 	if ((statusFlag = statusReqHandler(messageArray,playerAddr, allGameInfo)) == -1);
-
-
-	if (gameIDFlag == -1){
-		return;
-	} else if(playerIDFlag == -1){
-		return;
-	} else if (playerIDFlag == 2){
-		return;
-	} else if ((gameIDFlag == 1) && (playerIDFlag == 1)){
-		addPlayer(allGameInfo, messageArray, playerAddr);
-	} else if ((gameIDFlag == 1) && (playerIDFlag != 1)){
-		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
-		return;
-	} else if ((gameIDFlag != 1) && (playerIDFlag == 1)){
-		GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
-		return;
-	} 
 
 	//if they are here, they exist, in our hashtable --> update their info
 	//update the FA's information
@@ -960,7 +971,8 @@ void GAPlayerGameStatusHandlerThree(hashStruct_t *allGameInfo, GAPlayer_t *curre
 	char codeDropInfo[9000]= "\0";
 	int x = 0;
 	int y = 0;
-	
+
+	//setting up two iterators that will get a list of all friendly and any enemy player close to them
 	utility_t *utility_p;
 	utility_t *utility_p2;
 	if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
@@ -973,25 +985,28 @@ void GAPlayerGameStatusHandlerThree(hashStruct_t *allGameInfo, GAPlayer_t *curre
 	utility_p->param2 = &x;
 	utility_p->param3 = FAFriendlyHash;
 	utility_p->param4 = currentGA->TeamName;
-	
+
+	//Iterating to get all of the members of one team into a hashtable.
+	//Also creates the formatted message for the friendly players in this iterator.
 	hash_iterate(allGameInfo->FA, GAGameStatusFriendlyIteratorThree, utility_p);
 
-
+	//finding any player thats close to any one of the friendly players and is not on the same team 
 	utility_p->param1 = playerInfo;
-	// utility_p2->param2 = FANearEnemyHash;
 	utility_p->param3 = allGameInfo;
 
 	hash_iterate(FAFriendlyHash, GAGameStatusEnemyIteratorThree, utility_p);
 
+	//doing the same for the codeDrops
 	utility_p2->param1 = codeDropInfo;
 	utility_p2->param2 = &y;
 	utility_p2->param3 = allGameInfo;
 	
 	hash_iterate(FAFriendlyHash, GAGameStatusCodeIteratorThree, utility_p2);//HERE HERE HERE!!!
 	
-	
+	//creating the final message
 	sprintf(message, "GAME_STATUS|%s|%s|%s",allGameInfo->game->gameID, playerInfo, codeDropInfo);
 	
+	//sending the message to the requesting GA
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 	hashtable_insert(tempHash, "key", currentGA->addr); 
 	
@@ -1000,6 +1015,7 @@ void GAPlayerGameStatusHandlerThree(hashStruct_t *allGameInfo, GAPlayer_t *curre
 	
 	sending(allGameInfo->game->comm_sock, tempHash, message);
 	
+	//clean up
 	hashtable_delete(tempHash);
 	hashtable_delete(FAFriendlyHash);
 	hashtable_delete(FANearEnemyHash);
@@ -1079,21 +1095,27 @@ void GAGameStatusFriendlyIteratorThree(void *key, void* data, void* farg){
 	char playerInfo[BUFSIZE];
 	char *PlayerID = (char *) key;
 	
+	//renaming arguments
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
-	
 	utility_t *utility_p = (utility_t *) farg;
-	
+
+	//interpreting passed information
 	char *allPlayers= (char *) utility_p->param1;
 	hashtable_t *FAHash = (hashtable_t *) utility_p->param3;
 	char *TeamName = (char *) utility_p->param4;
 
+	//if the player is not on the same team, add them to the hashtable and generate their part of the whole message.
 	if((strcmp(FAPlayer_p->TeamName, TeamName)) == 0){
 		hashtable_insert(FAHash, PlayerID, FAPlayer_p);
 
 		long int currenttime = time(NULL);
 		long int lastContact = currenttime - FAPlayer_p->lastContact;
-		sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,FAPlayer_p->PlayerName, FAPlayer_p->status, FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
-		
+		sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,
+				FAPlayer_p->PlayerName, FAPlayer_p->status, 
+				FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
+
+		//this if, else condition is here becasue the formatting for the first person in the message is different
+		//than the formatting for any other person.
 		if (*(int*)utility_p->param2 == 0) 
 			strcat(allPlayers, playerInfo);
 		else {
@@ -1112,17 +1134,21 @@ void GAGameStatusCodeIteratorThree(void *key, void* data, void* farg){
 	//In this loop, I have to iterate though all of the field agents and add those agents 
 	int y = 0;
 
+	//renaming arguments
 	FAPlayer_t *FAFriendlyPlayer_p = (FAPlayer_t *) data;
 	utility_t *utility_p = (utility_t *) farg;
 
+	//interpreting passed information
 	char* allCodes= utility_p->param1;
 	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param3;
 
+	//overwriting some information in Utility to pass to the next function
 	utility_p->param5 = &(FAFriendlyPlayer_p->lat);
 	utility_p->param2 = &(FAFriendlyPlayer_p->lng);
-	utility_p->param4 = &y; //HERE HERE HERE!!!
+	utility_p->param4 = &y; 
 	utility_p->param1 = allCodes;
 
+	//iterating through all the CDs to find any code close to the given set of FAs
 	hash_iterate(allGameInfo->CD, GAGameStatusCodeHashIteratorThree, utility_p);
 }
 
@@ -1132,24 +1158,30 @@ void GAGameStatusCodeIteratorThree(void *key, void* data, void* farg){
 // Speficic to level 3
 void GAGameStatusCodeHashIteratorThree(void *key, void* data, void* farg){
 	char codeDropInfo[BUFSIZE];
-	
+
+	//renaming arguments
 	code_drop_t *code_drop_p = (code_drop_t *) data;
 	utility_t *utility_p = (utility_t *) farg;
 	
-	double lat = *(double *) utility_p->param5;
-	double lng = *(double *) utility_p->param2;
+	//interpreting passed information
+	double lng = *(double *) utility_p->param5;
+	double lat = *(double *) utility_p->param2;
 	char *allCodes = (char *) utility_p->param1;
-	
-	double distance = dist(lat, lng, code_drop_p->lng, code_drop_p->lat);
 
+	//calculating distance between the players
+	double distance = dist(lat, lng, code_drop_p->lat, code_drop_p->lng);
+
+	//if the code is within range and not captured, rename the null argument of captuered team to NONE
 	if (distance <= 100){
 		if (code_drop_p->team == NULL) {
 			free(code_drop_p);
 			if ((code_drop_p->team = malloc(100)) == NULL) exit(11);
 			strcpy(code_drop_p->team, "NONE");
 		}
+		//create message for this piece of code
 		sprintf(codeDropInfo, "%s,%lf,%lf,%s", (char*) key,code_drop_p->lat,code_drop_p->lng,code_drop_p->team);
-		
+
+		//this is here because the formatting is different for the first peice of code.
 		if(*(int*)utility_p->param4 == 0) 
 			strcat(allCodes, codeDropInfo);
 		
@@ -1196,23 +1228,31 @@ void GAGameStatusEnemyIteratorThree(void *key, void* data, void* farg){
 void GAGameStatusEnemyHashIteratorThree(void *key, void* data, void* farg){
 	char playerInfo[BUFSIZE];
 	
+	//renaming arguments
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
 	utility_t *utility_p = (utility_t *) farg;
 	
+	//interpreting passed information
 	double lat = *(double *) utility_p->param1;
 	double lng = *(double *) utility_p->param2;
 	char *friendlyTeamName = (char *) utility_p->param3;
-	// hashtable_t *FAEnemyHash = (hashtable_t *) utility_p->param4;
 	char *allPlayers = (char *) utility_p->param5;
 	
+	//calculate distance
 	double distance = dist(lat, lng, FAPlayer_p->lat, FAPlayer_p->lng);
 
+	//any enemy player who is within 100 meters is added to this string
 	if (distance <= 100){
 		if((strcmp(FAPlayer_p->TeamName, friendlyTeamName)) != 0){
 			long int currenttime = time(NULL);
 			long int lastContact = currenttime - FAPlayer_p->lastContact;
-			sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,FAPlayer_p->PlayerName, FAPlayer_p->status, FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
+			sprintf(playerInfo, "%s,%s,%s,%d,%lf,%lf,%ld",(char*) key, FAPlayer_p->TeamName,
+					FAPlayer_p->PlayerName, FAPlayer_p->status, 
+					FAPlayer_p->lat, FAPlayer_p->lng, lastContact);
 			
+			//we do not need the if statement here because the enemy players always come after the friendly players
+			//... and if there were no friendly players (and the enemies would go first), there would be no friendly
+			//... players to be close to.
 			strcat(allPlayers, ":");
 			strcat(allPlayers, playerInfo);
 
@@ -1645,27 +1685,15 @@ bool messageCodeIDHandler(char **messageArray, receiverAddr_t *playerAddr, hashS
 // handles the appropriate actions to neutralize a dropcode. 
 // Validates the message, neutralizes the dropCode, updates any relevant information.
 void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
-	int gameIDFlag, playerIDFlag;
 	char logText[1000];
-
+	
 	//Validate the number of arguments in the message
 	if (arraySize != 8){
 		GSResponseHandler(allGameInfo, playerAddr, "you need 8 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
 		return;
 	}
 
-	//Validate each of the parameters
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
-	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
-
-	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
-
-	if (playerNameHandler(allGameInfo, messageArray,playerAddr)) {
-		printf("player true\n");
-	} else {
-		printf("player false\n");
-		return;
-	}
+	if (!validateArgumentsOneThroughFour(allGameInfo, messageArray, playerAddr)) return;
 	
 	if (latHandler(messageArray,playerAddr, allGameInfo)){
 		printf("lat true\n");
@@ -1686,16 +1714,6 @@ void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int a
 	} else {
 		printf("Inputed HexCode does not exist, ignoring message\n");
 		return;
-	}
-
-	if ((gameIDFlag != 0) || (playerIDFlag != 0)){
-		if (gameIDFlag == 1){
-		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
-		return;
-		} else if (gameIDFlag != 1){
-			GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
-			return;
-		}
 	}
 
 	//Update the CodeDrop's Information.
@@ -1724,7 +1742,6 @@ void FA_NEUTRALIZE_handler(hashStruct_t *allGameInfo, char** messageArray, int a
 // handles the appropriate actions for FA_CAPTURE OPCODES.
 // handles both the case of initiating a capture or completing a capture.
 void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
-	int gameIDFlag, playerIDFlag;
 	char logText[1000];
 
 	//Validate the number of arguments in the message
@@ -1732,31 +1749,13 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 		GSResponseHandler(allGameInfo, playerAddr, "you need 6 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
 		return;
 	}
+	if (!validateArgumentsOneThroughFour(allGameInfo, messageArray, playerAddr)) return;
 
-	//Validate each of the parameters
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
-	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
-
-	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
-
-	if (playerNameHandler(allGameInfo, messageArray,playerAddr)) {
-		printf("player true\n");
-	} else {
-		printf("player false\n");
-		return;
-	}
-
-	if ((gameIDFlag != 0) || (playerIDFlag != 0)){
-		if (gameIDFlag == 1){
-		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
-		return;
-		} else if (gameIDFlag != 1){
-			GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
-			return;
-		}
-	}
-
+	//To initialize the capture, we read 0, then create a hashtable of players close enough to capture
+	//Then we send each player in that hashtable an individualized message with a unique random hashcode.
 	if ((strcmp(messageArray[5], "0") )== 0) {
+
+		// setting up for iteration
 		utility_t *utility_p;
 		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 		
@@ -1764,42 +1763,55 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 
 		FAPlayer_t *capturingPlayer = hashtable_find(allGameInfo->FA, messageArray[2]);
 
+		// passing the capturing player's lat, long, and TeamName as well as the hashtable we will send messages with
 		utility_p->param1 = &(capturingPlayer->lat);
 		utility_p->param2 = &(capturingPlayer->lng);
 		utility_p->param3 = closePlayers;
 		utility_p->param4 = capturingPlayer->TeamName;
 
+		// fill the Close Players hashtable
 		hash_iterate(allGameInfo->FA, captureProximityIterator, utility_p);
+
+		// send the appropriate message each player in the hashtable of close players
 		GS_CAPTURE_IDHandler(allGameInfo, closePlayers);
 
+		//clean up
 		hashtable_delete(closePlayers);
 		free(utility_p);
+
+	//this is the instance that the capturing player is finishing the capture by submitting another player's randomly assigned hex
 	} else {
+
+		//prepare the iterator
 		utility_t *utility_p;
 		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
+		//int i is a flag to see if the input hashcode is valid. 0 if not found, 1 if found.
 		int i = 0;
 
 		utility_p->param1 = messageArray[5];
 		utility_p->param3 = &i; //capturedPlayer
 
+		//search for the players whose hashcode was submitted
 		hash_iterate(allGameInfo->FA, findCapturedPlayer, utility_p);
 
+		//This is player who was captured.
 		FAPlayer_t *capturedPlayer = (FAPlayer_t *) utility_p->param2;
 
+		// If the capture was successful, issue the following messages and update statstics.
 		if (i != 0){
-			printf("%s\n", capturedPlayer->PlayerName);
 			GSResponseHandler(allGameInfo, capturedPlayer->addr, "You've been captuerd", "MI_CAPTURED");
 
 			FAPlayer_t *capturingPlayer = hashtable_find(allGameInfo->FA, messageArray[2]);
 
 			capturingPlayer->capturedPlayers = capturingPlayer->capturedPlayers + 1;
 			GSResponseHandler(allGameInfo, playerAddr, "Congratulations! Your capture was successful!", "MI_CAPTURE_SUCCESS");
-	
+
+			//logging
 			sprintf(logText, "Field Agent %s from team %s was captured", capturedPlayer->PlayerName, capturedPlayer->TeamName);
 			logger(allGameInfo->game->fp, logText);
 		}
-		
+		// clean up
 		free(utility_p);
 	}
 }
@@ -1809,38 +1821,16 @@ void FA_CAPTURE_handler(hashStruct_t *allGameInfo, char** messageArray, int arra
 void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arraySize,receiverAddr_t * playerAddr){
 	//returns a message to the sender
 	
-	int gameIDFlag, playerIDFlag, statusFlag;
+	int statusFlag;
 
 	if (arraySize != 6){
 		GSResponseHandler(allGameInfo, playerAddr, "you need 6 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
 		return;
 	}
 
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
-
-	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
-
-
-	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
-	if (!playerNameHandler(allGameInfo, messageArray, playerAddr)) return;
+	if (! validateArgumentsOneThroughFour(allGameInfo, messageArray, playerAddr)) return;
 
 	if ((statusFlag = statusReqHandler(messageArray,playerAddr, allGameInfo)) == -1) return;
-
-	if (gameIDFlag == -1){
-		return;
-	} else if(playerIDFlag == -1){
-		return;
-	} else if (playerIDFlag == 2){
-		return;
-	} else if ((gameIDFlag == 1) && (playerIDFlag == 1)){
-		addPlayer(allGameInfo, messageArray, playerAddr);
-	} else if ((gameIDFlag == 1) && (playerIDFlag == 0)){
-		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
-		return;
-	} else if ((gameIDFlag != 1) && (playerIDFlag == 1)){
-		GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
-		return;
-	} 
 
 	// if they are here, they exist, in our hashtable --> update their info
 	// update the GA's information
@@ -1869,26 +1859,12 @@ void GA_STATUS_handler(hashStruct_t *allGameInfo,char **messageArray, int arrayS
 
 // Handles the GA_HINT OPCODE messages. Sends messages to either one or all of a team. 
 void GA_HINT_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySize, receiverAddr_t *playerAddr){
-	int gameIDFlag, playerIDFlag;
-
+	//Validate given Arguments
 	if (arraySize != 7){
 		GSResponseHandler(allGameInfo, playerAddr, "you need 7 pieces of information",  "MI_ERROR_INVALID_OPCODE_LENGTH");
 		return;
 	}
-
-	//Validate each of the parameters
-	gameIDFlag = gameIDHandler(allGameInfo, messageArray, playerAddr);
-	playerIDFlag = playerIDHandler(allGameInfo, messageArray, playerAddr);
-
-	if (!teamNameHandler(allGameInfo, messageArray, playerAddr)) return;
-
-	if (playerNameHandler(allGameInfo, messageArray,playerAddr)) {
-		printf("player true\n");
-	} else {
-		printf("player false\n");
-		return;
-	}
-
+	if (! validateArgumentsOneThroughFour(allGameInfo, messageArray, playerAddr)) return;
 	if (messageCodeIDHandler(messageArray, playerAddr, allGameInfo)) {
 		printf("Inputed HexCode exists\n");
 	} else {
@@ -1896,54 +1872,57 @@ void GA_HINT_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySi
 		return;
 	}
 
-	if ((gameIDFlag != 0) || (playerIDFlag != 0)){
-		if (gameIDFlag == 1){
-		GSResponseHandler(allGameInfo, playerAddr, "You were added to this game before",  "MI_ERROR_INVALID_GAME_ID");
-		return;
-		} else if (gameIDFlag != 1){
-			GSResponseHandler(allGameInfo, playerAddr, "This ID is not registered",  "MI_ERROR_INVALID_ID");
-			return;
-		}
-	}
+	//The design is to make a hashtable of those players who are to recieve a message (either one person or an entire team)
+	//Create a message for each person in that hashtable.
+	//Send the indiviualized message to each member of the hashtable
+	//Delete the hashtable.
 
-
-	//make a hashtable
-	//fill it with either a single player or a whole team
-	//send the message with the right format
-
+	//Create hashtable
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 
+	//Populate the hashtable with the team
 	if ((strcmp("*", messageArray[5])) == 0){
 
 		utility_t *utility_p;
 		if ((utility_p = malloc(sizeof(utility_t))) == NULL) exit(11);
 
-
+		// Iterate through the hashtable of all FA's and add only those who are on a given team into tempHash.
 		utility_p->param1 = messageArray[3]; //TeamName
 		utility_p->param2 = tempHash;
 		
 		hash_iterate(allGameInfo->FA, FAMatchingTeam, utility_p);
 
+		// Starting to create an individualized message with the iterator
 		utility_t *utility_p2;
 		if ((utility_p2 = malloc(sizeof(utility_t))) == NULL) exit(11);
 
+		//create the first part of the message string from the 
 		char message1[BUFSIZE];	
 		sprintf(message1, "%s|%s|%s|%s|%s", 
-			messageArray[1], messageArray[2], messageArray[3], messageArray[4], messageArray[5]);
-		printf("%s\n", message1);
+				messageArray[1], messageArray[2], messageArray[3], 
+				messageArray[4], messageArray[5]);
 
+		// pass the message pieces into an the iterator.
 		utility_p2->param1 = allGameInfo;
 		utility_p2->param2 = message1;
-		utility_p2->param3 = messageArray[6];
+		utility_p2->param3 = messageArray[6]; //the Hint given by the GA
 
-
-
+		//finishing the creation of the message and sending it
 		hash_iterate(tempHash, GA_HINTIterator, utility_p2);
+
+		//clean up
 		free(utility_p);
 		free(utility_p2);
+
+	// For the case of only sending to one player
 	} else {
+		// Find the recieving FA player
 		FAPlayer_t *FAPlayer_p = hashtable_find(allGameInfo->FA, messageArray[5]);
+
+		//Insert the FA into the 
 		hashtable_insert(tempHash, messageArray[5], FAPlayer_p->addr);
+
+		//create the messsage
 		char message[BUFSIZE];
 		sprintf(message, "%s|%s|%s|%s|%s|%s|%s", 
 		messageArray[0], messageArray[1],
@@ -1951,9 +1930,11 @@ void GA_HINT_handler(hashStruct_t *allGameInfo, char** messageArray, int arraySi
 		messageArray[4], messageArray[5],
 		messageArray[6]);
 
+		//send to the player
 		sending(allGameInfo->game->comm_sock, tempHash, message);
 	}
 
+	//clean up
 	hashtable_delete(tempHash);
 }
 
@@ -2278,17 +2259,20 @@ void existingHexCodeIterator(void *key, void* data, void* farg){
 
 // adds all of the players inside of a 10m radius to a hashtable. Used for determining eligable players to capture.
 void captureProximityIterator(void *key, void* data, void* farg){ 
+	//renaming the given arguments
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
 
+	//Interpreting the passed information through utility
 	double lat = *(double *) utility_p->param1;
 	double lng = *(double *) utility_p->param2;
 	hashtable_t *hash = (hashtable_t *) utility_p->param3;
 	char *TeamName = (char *) utility_p->param4;
 
+	//calculating the distance between players
 	double distance = dist(lat, lng, FAPlayer_p->lat, FAPlayer_p->lng);
-	printf("From: %s, distance: %f\n", FAPlayer_p->PlayerName, distance);
 
+	// if they are not on the same team and within 10m, assign them a random hex code and add them to the hashtable
 	if ((strcmp(TeamName, FAPlayer_p->TeamName)) != 0){
 		if (distance < 10){
 			if (FAPlayer_p->status != 1){
@@ -2305,23 +2289,26 @@ void captureProximityIterator(void *key, void* data, void* farg){
 
 // Creates and sends an individualized message for each member of a team whose guideAgent sent a hint.
 void GA_HINTIterator(void *key, void* data, void* farg){
+	//renaming the given arguments
 	utility_t *utility_p = (utility_t *) farg;
 	receiverAddr_t *addr = (receiverAddr_t *) data;
 	char *PlayerID = (char *) key;
 
+	//Interpreting the passed information through utility
 	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param1;
 	char *inMessage1= (char *) utility_p->param2;
 	char *inMessage2 = (char *) utility_p->param3;
 
+	//creating the individualized message
 	char message[BUFSIZE];	
 	sprintf(message, "%s|%s|%s", 
 		inMessage1, PlayerID, inMessage2);
-	printf("%s\n", message);
 
-	// receiverAddr_t *addr = FAPlayer_p->addr;
+	//create a hashtable of recipients for sending purposes (it is a singleton hashtable since the message is individualized)
 	hashtable_t *hash = hashtable_new(1, deleteTempHash, NULL);
 	hashtable_insert(hash, PlayerID, addr); //the key doesnt matter
-		
+	
+	//conplete the send
 	sending(allGameInfo->game->comm_sock, hash, message);
 		
 	hashtable_delete(hash);
@@ -2329,22 +2316,27 @@ void GA_HINTIterator(void *key, void* data, void* farg){
 
 // Sends a GS_CAPTURE message to all of those who are in a hashtable with each player's individualized OPCODE.
 void GS_CAPTURE_IDIterator(void *key, void* data, void* farg){
+	//Renaming the arguments
 	utility_t *utility_p = (utility_t *) farg;
 	FAPlayer_t *FAPlayer_p = (FAPlayer_t *) data;
 
+	//Interpreting the passed information through utility
 	hashStruct_t *allGameInfo = (hashStruct_t *) utility_p->param1;
 	char *inMessage = (char *) utility_p->param2;
 
-
+	//creating the personalized messages
 	char message[BUFSIZE];	
 	sprintf(message, "%s|%s", inMessage, FAPlayer_p->capturingHexCode);
 	printf("%s\n", message);
-	
+
+	//creating a new hashcode for sending purposes
 	hashtable_t *tempHash = hashtable_new(1, deleteTempHash, NULL);
 	hashtable_insert(tempHash, FAPlayer_p->PlayerName, FAPlayer_p->addr); 
 	
+	//completing the send
 	sending(allGameInfo->game->comm_sock, tempHash, message);
-		
+	
+	//clean up
 	hashtable_delete(tempHash);
 }
 
@@ -2384,5 +2376,4 @@ void logger(FILE *fp, char* message){
 	time_t ltime; /* calendar time */
     ltime=time(NULL); /* get current cal time */
     fprintf(fp, "%s                             %s\n\n",asctime( localtime(&ltime) ), message );
-	
 }
