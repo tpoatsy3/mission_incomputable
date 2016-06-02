@@ -48,3 +48,6 @@ Usage: ` ./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GS
 After initial GA_STATUS sent and approved by the server,
 -  If the user types a zero, sends and prints GA_STATUS
     ```
+    
+### Field Agent
+We tested the field agent through the UI. To ensure that the string for the hex code is properly created, we used a string to print it out. At one point to ensure that messages were properly being formatted, we changed a textlayer label to say status okay. Most of the testing we did was directly on the Pebble UI, and going through many combinations of button presses to make sure that every window worked. Since we could not get the server working, we had trouble testing the server side of the Pebble app, but the UI was thoroughly tested, as were the messenging capabilities.

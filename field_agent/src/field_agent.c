@@ -195,6 +195,7 @@ void statusPage(){
     
     
     //send message to server to recieve message
+    
     char *stat = "Status: Active";
     BitmapLayer *image2 = bitmap_layer_create(GRect(0, 30, 144, 100));
     //graphics_draw_bitmap_in_rect(void, code_bitmap, GRect rect)
@@ -289,7 +290,7 @@ static void letter_click_handler(ClickRecognizerRef recognizer, void *context) {
 
 void formatMessage(char *message, int statusReq){
     //FA_LOCATION|gameId|pebbleId|teamName|playerName|lat|long|statusReq
-    snprintf(message, sizeof(char)*200,"FA_LOCATION|%s|%s|%s|%s|%s|%s|%s"," "," "," "," "," "," "," ");
+    snprintf(message, sizeof(char)*200,"FA_LOCATION|0|%s|%s|%s|%s|%s|%d",pebbleID,"Topaz","John",latitude,longitude,statusReq);
     
     //put in 7 strings
 
@@ -692,6 +693,8 @@ static void tick_handler(struct tm *tick_time, TimeUnits units_changed) {
     }
     //should send every fifteen seconds if it is on the move
     else if(tick_time->tm_sec % 15 == 0) {
+        sendMessage(AppKeyLocation, "");
+        
         //strcat(status,"!");
         //also send coordinates
         //also send direction
@@ -940,6 +943,7 @@ void home(){
  * A class to initialize the app and set up many of the handlers.
  */
 void init() {
+    sendMessage(AppKeyPebbleId, "");
     health_service_events_subscribe(health_handler, NULL);
 
     
