@@ -73,6 +73,8 @@
 <img src="pebble/pebble7.png" height ="120">
 <img src="pebble/pebble8.png" height ="120">
 
+We put in icons to help to user have a better sense of what each part of the app accomplishes. Especially if a user weren't as fluent in English he or she would have an easier time navigating our app with our UI. We also made the status bar red to highlight that it was an important piece of information.
+
 # Guide Agent
 ## Pseudocode
 1. execute from the commandline with usage syntax
