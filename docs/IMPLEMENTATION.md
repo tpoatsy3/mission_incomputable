@@ -65,13 +65,13 @@
 
 ### Pebble Output
 <img src="pebble/pebble1.png" height ="150">
-<img src="pebble/pebble2.png" height ="100">
-<img src="pebble/pebble3.png" height ="100">
-<img src="pebble/pebble4.png" height ="100">
-<img src="pebble/pebble5.png" height ="100">
-<img src="pebble/pebble6.png" height ="100">
-<img src="pebble/pebble7.png" height ="100">
-<img src="pebble/pebble8.png" height ="100">
+<img src="pebble/pebble2.png" height ="150">
+<img src="pebble/pebble3.png" height ="150">
+<img src="pebble/pebble4.png" height ="150">
+<img src="pebble/pebble5.png" height ="150">
+<img src="pebble/pebble6.png" height ="150">
+<img src="pebble/pebble7.png" height ="150">
+<img src="pebble/pebble8.png" height ="150">
 
 # Guide Agent
 ## Pseudocode
