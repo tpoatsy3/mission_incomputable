@@ -1,3 +1,5 @@
+NOTE: The top `makefile` only runs Guide and the server. Use the makefile inside the field agent to compile it
+
 # Mission Incomputable
 Virginia Cook Ihab Basri Kyra Maxwell Ted Poatsy
 ## Readme for GuideAgent 
@@ -66,3 +68,198 @@ If the player is on the move, then it will send its location to the server every
 
 ##### Limitations
 Because we could not get the Pebble to connect to the server we could not test much of the functionality. 
+
+**COMPILING:**
+
+We have two ways for compiling the lab for this week.
+
+- Either from a top-level Makefile inside tse
+
+
+	> Type `make` in the terminal in the top level directory `project-starter-kit` to call main `Makefile` of `server` in ./game_server which compiles `gameserver`. It will compile all the files in the library of abstract structures (specifically hashtable) into `cs50ds.a` library and `file.c` in `common.a`-> then the user needs to call the executables (in this case `gameserver`) following the right format.
+	
+	&nbsp;
+	
+	> Type `make` in the terminal in the `game_server` directory, which compiles `gameserver`. It will compile all the files in the library of abstract structures (specifically hashtable) into `cs50ds.a` library and `file.c` in `common.a`-> then the user needs to call the executables (in this case `gameserver`) following the right format.
+	
+	&nbsp;
+
+	> type `make clean` to delete all object files, executables, libraries, and any other intermediate files.
+
+&nbsp;
+
+**MAKEFILE:**
+
+	# Makefile for 'server' data type
+	#
+	# Topaz, May 2016
+	
+	#path of libraries
+	L = ./lib
+	C = ./common
+	
+	PROG = gameserver
+	OBJS = server.o 
+	LLIBS = $L/cs50ds.a
+	CLIBS = $C/common.a
+	
+	CC = gcc
+	CFLAGS = -Wall -pedantic -std=c11 -ggdb -I$L -I$C -lm -std=gnu99 -lncurses
+	MAKE = make
+	
+	#compiling
+	$(PROG): $(OBJS) $(LLIBS) $(CLIBS)
+		$(CC) $(CFLAGS) $^  -o $@
+	
+	server.o:
+	
+	# build the libraries
+	$L/cs50ds.a: 
+		cd $L; $(MAKE)
+	
+	$C/common.a: 
+		cd $C; $(MAKE)
+	
+	#cleaning
+	clean: 
+		rm -f *~
+		rm -f *.o
+		rm -f $(PROG)
+		cd $L; $(MAKE) clean
+		cd $C; $(MAKE) clean
+
+
+
+&nbsp;
+
+> hashtable.c 		
+> 
+> hashtable.h 		
+> 
+> Makefile(hashtable)
+> cs50ds.a 		
+> 
+> Makefile(for the cs50ds.a library)
+
+
+> server.c 		
+>
+> word.c 		
+> 
+> word.h 		
+> 
+> file.c
+>
+> file.h
+>
+> Makefile(for the common.a library)
+>
+> Log directory
+	
+&nbsp;
+		
+**USAGE:**
+	
+	/*
+	Mission Incomputable!
+	Team Topaz
+	
+	gameserver.c - The game server application coordinates one and only one game each times it runs.
+	it interacts with the field agent through pebble and proxy (UDP) and the guide agent though UDP 
+	communication
+	
+	May, 2016
+	Ihab Basri, Ted Poatsy
+	*/
+
+&nbsp;
+
+**EXAMPLE COMMAND LINES:**
+
+	[hooby@wildcat ~/cs50/projects/project-starter-kit/game_server]$ make
+	gcc -Wall -pedantic -std=c11 -ggdb -I./lib -I./common -lm -std=gnu99 -lncurses   -c -o server.o server.c
+	gcc -Wall -pedantic -std=c11 -ggdb -I./lib -I./common -lm -std=gnu99 -lncurses server.o lib/cs50ds.a common/common.a  -o gameserver
+
+	[hooby@wildcat ~/cs50/projects/project-starter-kit/game_server]$ gameserver codeDrop 12345
+	Game Started
+	Host: wildcat.cs.dartmouth.edu
+	Port: 12345
+
+	[hooby@wildcat ~/cs50/projects/project-starter-kit/game_server]$ gameserver --time=10 -a --level=3 --log=raw --game=5555 codeDrop 12345
+	Game Started
+	Host: wildcat.cs.dartmouth.edu
+	Port: 12345
+
+
+
+
+**this is just a snippet of the output when running `make` (for clarity).  
+
+&nbsp;
+
+**EXIT STATUS:**
+
+> 0 - success
+> 
+> 1 - improper flags/options were provided
+> 	
+> 2 - more or less than 2 mandatory parameters were provided
+> 	
+> 3 - improper port was provided
+>
+> 4 - Invalid code drop was provided
+
+> 5 - something went wrong in running the game for multiple reasons
+		(it could be because log directory was not provided, failed to bind to a socket... etc). A message describing what's wrong will be printed on the screen
+> 11 - memory allocation problems
+
+&nbsp;
+
+**ASSUMPTION:**
+
+- A log directory is created to store the log file 
+
+- The ascii will run on a full screen terminal (66 X 210)
+
+- The server needs the guide agent and field agent to be connected into the same port
+
+- The game is played on Dartmouth campus or it will not be displayed on the ascii map
+
+- The maximum filename inside the log directory is a 100 digit number. 
+
+- A codeDrop file with a valid format needs to be provided to store the information and run the game
+
+- The guide agent will not go idle
+
+- The field agent will not go idle
+
+- The field agent re-enter the same team and gameId if they are get disconnected due to internet issue
+
+- Any hexcode used in communication between the server and/or field and guide agents should not exceed 8 hexcodes
+
+- it is assumed that the guide agents and field agents will request a status back if they are trying to register to the game, or they will not know the gameID and will be considered existing players (failed to communicate with them since the gameID does not match while their pebbleId is registered) 
+
+- The hexcode received is actually a hexcode (0-F)
+
+&nbsp;
+
+**LIMITATIONS:**
+
+- memory leaks when the ascii map option is chosen. It is lcurser memory leak. We tested it on basic starting closing the library and it was leaking (confirmed it is not our code)
+
+- character overwriting each other when they happen to overlap on the map
+
+- If guide agent joined the game but no other field agent joined that same team before the end of the game, this guide agent's team will not be considered a team in the statistics sent at the end
+
+- Our server did not communicate directly with the pebble. So we have no way to confirm that we are processing and responding to and from the pebble correctly. However, we created a test cases where we used the pebble was connected and our code worked perfectly.
+
+- The server user cannot end the game before the time is up or no remaining codes left  when ascii display is chosen. However, it works perfectly without the ascii (see documentation)
+
+- The server user will not be able to see the inbound or outbound messages (textual update) when the ascii is displayed
+
+
+**Documentation:**
+
+- type quit and `EOF` to end the game
+
+- the game needs to be connected to a free socket

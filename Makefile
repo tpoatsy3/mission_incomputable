@@ -9,7 +9,6 @@ MAKE = make
 
 all: 
 	@echo "Making everything..."
-	$(MAKE) -C field_agent
 	$(MAKE) -C guide_agent
 	$(MAKE) -C game_server
 
@@ -31,7 +30,6 @@ install-proxy-deps:
 
 clean:
 	@echo "Cleaning everything..."
-	$(MAKE) -C field_agent clean
 	$(MAKE) -C guide_agent clean
 	$(MAKE) -C game_server clean
 	rm -f *~ *.o

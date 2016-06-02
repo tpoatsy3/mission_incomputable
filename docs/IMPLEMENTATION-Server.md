@@ -1,144 +1,33 @@
 # Implementation Spec for Mission Incomputable
 # Team Topaz
 
-## Field Agent
-
-&nbsp;
-
-### Pseudocode
-
-1. call main() function when app opens
-2. send message to server that guide agent has entered game with game number 0, the pebbleID, the team name and player name
-3. call init() function to set up UI elements
-    1. create the window with window_create()
-    2. set the window handlers to window_load and window_unload
-    3. push the window to the top of the stack
-4. call window_load() to actually load these elements
-    1. create a text layer for the status
-    2. create a simplemenulayer with three options
-        1. neutralize code drop
-        2. capture player
-        3. view messages
-5. call app_event_loop to wait for clicks
-    1. if server sends a message to pebble
-        1. parse the status and put it into the string
-        2. update status
-        3. put that message into the list of messages
-    2. if neutralize code drop is pressed
-        - call select_number() four times
-            1. each time will load a simplemenulayer with choices from 0-10 and retain each choice
-            2. call confirm_choice()
-                - will load menu similar to first
-                    1. textlayer is the code chosen
-                    2. menu options are confirm or cancel
-                    3. if confirm is pressed, calls the (FA_NEUTRALIZE OPCODE) with the same information as join game except for the updated gameID and the code ID (4 digit hex)
-                    4. returns to original screen
-    3. if capture player is pressed
-        - call select_number() four times
-            1. each time will load a simplemenulayer with choices from 0-10 and retain each choice
-            2. call confirm_choice()
-                - will load menu similar to first
-                    1. textlayer is the code chosen
-                    2. menu options are confirm or cancel
-                    3. if confirm is pressed, calls the (FA_CAPTURE OPCODE) with the same information as above except including the captured player’s hex code and does not include location 
-                    4. returns to original screen
-    4. if view messages is pressed
-        1. displays a text layer
-        2. loads each message from the list into the text layer
-    5. if 30 seconds have passed or the accelerometer data handler is triggered
-        1. If the accelerometer data handler is triggered for three seconds in a row, then send FA_LOCATION message to the Game Server.
-6. call window unload to destroy window elements
-    1. destroy the text layer
-    2. destroy the simplemenulayer
-7. call deinit() to destroy app elements
-    - call window_destroy on the window element
-
-### Data Structures
-
-– Window Struct: holds the UI elements of the Pebble face, declared in the Pebble SDK
-
-– TextLayer Struct: a UI element that displays text
-
-– SimpleMenuLayer Struct: a UI element that allows you to display and select an item from a menu
-
-– List Struct: holds messages recieved by the server
-
-### Pebble Output
-<img src="pebble/pebble1.png" height ="120">
-<img src="pebble/pebble2.png" height ="120">
-<img src="pebble/pebble3.png" height ="120">
-<img src="pebble/pebble4.png" height ="120">
-<img src="pebble/pebble5.png" height ="120">
-<img src="pebble/pebble6.png" height ="120">
-<img src="pebble/pebble7.png" height ="120">
-<img src="pebble/pebble8.png" height ="120">
-
-We put in icons to help to user have a better sense of what each part of the app accomplishes. Especially if a user weren't as fluent in English he or she would have an easier time navigating our app with our UI. We also made the status bar red to highlight that it was an important piece of information.
-
-### Other Extensions
-We implemented the health extension and the compass extension. From the top of the home page, the compass direction is displayed. Right below, the calorie and step count since the game started is displayed.
-
-# Guide Agent
-## Pseudocode
-1. execute from the commandline with usage syntax
-    - `./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GSport`
-    - where -log=raw or -v is the optional verbose logging mode
-    - where-id=######## is the optional guideId
-    - where teamName is the Team name
-    - wher playerName is the Guide Agent's chosen name
-    - where GShost is the Game Server host
-    - where GSport is the Game Server port number  
-2. Parse flags and check for errors
-3. Parse other parameters and check for errors
-4. Create a log file 
-5. Create the codeDrops and agents hashtables
-6. Create and fill the guideAgent struct
-    - Call randomHex() if necessary to create a guideId
-7. Call socket_setup
-    1.
-8. Make the initial log to the logfile
-9. While the guideId hasn't been approved
-    1. Call internalUpdate to send OPCODE notifying the server that a guide has joined 
-    2. Wait for the server's response
-        1. If the guideId is not approved generate a new one and try again
-        2. If there is some other error, exit
-        3. If the guideId is approved
-            - Recieve and save gameNumber
-10. while game is in play
-    1. using select wait for input from either the server or the guide
-    2. if there is data from the server call handle_socket
-        3. if OPCODE is recieved
-            1. if in raw-mode
-                - log the OPCODE
-        2. parse OPCODE - tokenize into an array by pipes
-            1. If it is a "GAME_STATUS" call updateGame()
-                1. if code drops were updated call updateCodeDrops
-                    1. for each code drop
-                        1. verify numerical parameters
-                        2. update code drop in the code drop hashtable
-                        3. if code drop was neutralized
-                            - log any code drop neutralization
-            2. if agents were updated call updateAgents
-                1. for each agent
-                    1. verify numerical parameters 
-                    2. update agent in the agent hashtable
-                    3. if agent was captured or new agent joined
-                        - log capture/join in logfile
-            2. If it is a "GAME_OVER" call parseGameEnd()
-                1. Parse and print game end stats to std out
-                2. Exit the game
-            3. If it is a "GS_RESPONSE" print to stdout
-
-### Data Structures
-- Field Agent Struct: Stores a name, status, location, and team
-- Guide Agent Struct: Stores a name and status (corresponding to the guide agent running the program)
-- Code Drop Struct: Stores a string name, a string status, and a double location
-- Hashtables of Field Agents: Hashtable storing all field agents on all teams if level 1 and only field agents on the guide's team if level 2
-- Hashtable of Code Drops: Hashtable storing all the code drops
-- List of Notifications: Record of previous notifications recieved from the game server, i.e. when new agents are added, locations are updated, or statuses are updated
-
 ## Game Server
 
+### EXTENSIONS IMPLEMENTED IN THE SERVER
+
+	 - LEVEL 3
+		void GAGameStatusEnemyIteratorThree(void *key, void* data, void* farg);
+		void GAGameStatusEnemyHashIteratorThree(void *key, void* data, void* farg);
+	
+	for details of testing, check TESTING.md
+	
+	 -  HAVERSINE FORMULA
+		double dist(double x1, double y1, double x2, double y2);
+	
+	for details of testing, check TESTING.md
+	
+	-   GAME DURATION
+		Inside the `while` loop of the `game server` function (L343 - L348)
+		bool game_server (char *argv[], hashStruct_t *allGameInfo)
+		
+	-   ASCII MAP
+		
+		void asciiDrawing(hashStruct_t *allGameInf);
+		void printingDropCode(void *key, void* data, void* farg);
+		void printingPlayer(void *key, void* data, void* farg);
+		double getYDimension(double num, double max_y);
+		double getXDimension(double num, double max_x);
+		
 ### Psudocode
 
 The way we implement the `game server` is by going throw the detailed pseudo-code step by step, and verify the method, results, and any memory leaks before we move to the next step. In case, a data structure needs to be deleted, a `delete` function will be used at the end of the code to ensure accuracy in detecting any memory leaks. Also, we are planning to leverage the `list` and `counters` data structures and pre-tested functions.
@@ -146,12 +35,15 @@ The Game server code will follow roughly the following outline:
 
 
 1. Execute from the command line with usage syntax
-    * `./gameserver [-log=raw] [-level=2] codeDropPath GSport time`
+    * `./gameserver [--log] [--game= ####] [--level = 1 or 3] [--time (in Minutes)] [-a (ascii display)] codeDropPath GSport`
     * where `codeDropPath` represents the path name for the code-drop file, 
     * where `GSport` is the game server port number,
     * where `time` is the duration of the game in minutes
-    * `[-log=raw]` for more extensive logging option
-    * `[-level=2]` to choose level 2 of the game
+    * `[--log=raw]` for more extensive logging option
+    * `[--level]` to choose level 1 or 3 of the game (1 by default)
+	* `[--time] to choose a duration of the game or infinity by default`
+	* `[-a] ascii map
+	* `[--game= ####] game ID selcted by the user up to 8 hex or random`
 
 
 2. parse the command line, validate parameters, initialize other models
@@ -160,30 +52,32 @@ The Game server code will follow roughly the following outline:
     - confirming that `time` has the right format (digits only), if zero, it is considered unlimited
     - create a deaddrop code structure for each code to be neutralized (lat, long, status, neutralzing team)
     - count the number of deaddrops
+	- create a master struct that can point to all the lists in the game (FA list, GA list, and codedrop list)
     - create a list of pointers to deaddrop code structures with the specific Hex code as the key
     - confirming that `GSport` is not `NULL` and has valid digits and only digits
     - setup the socket on which to receive messages using `GSport`
         - create socket on which to listen
         - name and bind to socket using `GSport`
         - exit if setting up the socket encounters any errors
-3. create a random game number between 1 and 65535 for the new game
+3. create a random game number between 1 and 65535 for the new game if a game ID was not provided by the user
 4. create a new statistics structure that includes starting time, number of remaining code drops, and information about each team statistics
 4. create a logfile `guideserver.log` in a log directory
     - update the log with start-up information (host/port where server is running, number of deaddrops, game number, game statistics information, ..etc)
 5. while there are deaddrops to be neutralized or error happens or the termination flag is not set or the time is not expired
-    - draw GUI using gtk
+    - draw the ASCII map if the option was given
         - For each active agent in the list, draw  their location on the map
         - For each active code drop in the list,  draw its location on the map
     - By using `select`, we will listen for messages from either the server or the guide
+	- our timeout is only 5000 millisecond
     - receive `OPCODE` messages from guide agents and/or field agents
     - validate that the message is not an empty string
     - log the message (if the raw option chosen) into the log file
     - parse the `OPCODE` and validate it(proper `OPCODE`)
-        - if it is not a proper `OPCODE`, an error code sent to any agent with a proper message (invalid OPCODE)
+        - if it is not a proper `OPCODE`, an error code sent to any agent with a proper message (GS_RESPONSE)
         - log it in the logfile
     - parse and validate the subsequent messages until the message string is `NULL` -  tokenize by pipes
-        - if `gameID` is not valid (matching the above game number), an error code sent to any agent with a proper message (invalid gameID)
-        - if `teamName` is not valid (matching the above game number), an error code sent to any agent with a proper message (invalid gameID)
+        - if `gameID` is not valid (matching the above game number), an error code sent to any agent with a proper message (GS_RESPONSE)
+        - if `teamName` is not valid (matching the above game number), an error code sent to any agent with a proper message (GS_RESPONSE)
     - process the messages according to OPCODE as stated below.
     - update the statistics structure
         - use the computer time to detect the current time and compare it to the starting time to calculate the duration of the game
@@ -304,6 +198,7 @@ The Game server code will follow roughly the following outline:
         * `cd` followed by a number represent each of the Code Drops. Code Drops are separated by colons and their information in the struct is separated by commas. The information included for each Code Drop is the `codeID`, `lat`, `long`, and `neutralizingTeam`
    * log it
 ###### Level 2
+
 * `GAME_STATUS|gameId|fa1:fa2:fa3...faN|fa1cd1:fa1cd2:...:fa1cdM|fa2cd1:fa2cd2:...:fa2cdM|...|faXcd1:faXcd2:...:faXcdM`
     * Create a message that has the following components of the above format:
         * `gameID` is the game number.
@@ -314,19 +209,18 @@ The Game server code will follow roughly the following outline:
 
 
 
-
 ### Data structures (e.g., struct names and members)
 
-- Field Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `pebbleID`, `status`, `last-contact-time`, `captureCode`, and `capturedBy`, `long`, and `lat`
-- Guide Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `agentID`, `last-contact-time`
+- Field Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `status`, `last-contact-time`, `captureCode`, and `capturedBy`, `long`, and `lat`
+- Guide Agent Struct: Stores `remoteAddress`, `remotePort`, `playerName`, `teamName`, `last-contact-time` 
 - Code Drop Struct: Stores `lat`, `long`, `status`, and `neutralizing_team`
 - game statistics structure: stores starting time, number of remaining code drops, and information about each team statistics
 - UDP structure: from the standard library
-- list of all the field players
-- list of all the guide players
-- list of all the teams
+- A utility struct that has 5 general pointers
+- A master information struct that points to all the struct
+- list of all the field players  with a pebbleID as the key
+- list of all the guide players with a guideID as the key
 
-i.e. when new agents are added, locations are updated, and/or statuses are updated
 
 *Security and privacy properties, Error handling and recovery*
 
