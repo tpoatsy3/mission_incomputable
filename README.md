@@ -1,5 +1,6 @@
-See ["GETTING-STARTED.md"](GETTING-STARTED.md) - this README is for you to edit. Please leave the GETTING-STARTED.md file untouched. 
-#### Readme for GuideAgent 
+# Mission Incomputable
+Virginia Cook Ihab Basri Kyra Maxwell Ted Poatsy
+## Readme for GuideAgent 
 Compiling: See Makefile  
 Usage: `./guideAgent [-v|-log=raw] [-id=########] teamName playerName GShost GSport`  
 Topaz, May 2016
@@ -50,7 +51,7 @@ guideAgent.c communicates with the Game Server via the protocol to receive updat
 - Assumes there is a log directory in the current directory
 - Certain things are limited by buffers, ie assumes when reading from the socket there will be no more than 50 teams, 50 players, or 50 code drops at one time - would need to be manually updated if the game was played on a large scale
 
-#### Field Agent
+## Readme for Field Agent
 A Pebble adventure game. 
 
 ##### Compiling
