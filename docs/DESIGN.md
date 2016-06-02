@@ -198,11 +198,12 @@ If `broadcastReciever()` parses changes in the field agents or code drops, it wi
 	
 2. `main()`to end the game (when the time expires or all codes have been neutralized)
 
-### Extensions to Implement
+### Extensions We Implemented
 - 10 points: Game server provides a graphical game summary, e.g., displaying a marker for each code drop and each player, overlaid on a campus map. You may find the gtk package useful.
 - 10 points: Guide Agent provides a graphical game summary, e.g., displaying a marker for each code drop and each player, overlaid on a campus map. You may find the gtk package useful.(Limited to 5 points if your game server also provides a graphical view.)
 - 5 points: A “Level 2” game, in which the game server sends the Guide coordinates only for field agents on the Guide’s team; for each field agent, it provides two pieces of information for each code drop and opposing agent, specifically, the direction and approximate distance: near (<10m),close (<100m), and far.
-- 5 points: Use the Pebble’s accelerometer API to detect when the Field Agent is stationary or moving, sending less-frequent location updates to the Game Server when stationary. The purpose is to save energy. The Pebble should report at least once every minute so Guide does not worry.
-- 2 points: Run games for a given duration; the game server’s status updates inform all players about time remaining in the game. When time runs out, all players are notified of the game-end and final statistics.
+- 5 points: Use the Pebble’s compass API to send information about the Field Agent’s heading to the Guide, who can display and use that information in planning. Caveat: we are unsure about the accuracy of Pebble’s magnetometer.- 2 points: Run games for a given duration; the game server’s status updates inform all players about time remaining in the game. When time runs out, all players are notified of the game-end and final statistics.
+- 4 points: Use the Pebble API to collect statistics about step-count and calories-burned, reporting that information to Game Server periodically.
+- 10 points: Enhance the Field Agent user interface; consider these Common design styles. You may find it useful to explore these examples - but remember to cite any code you borrow.
 - 3 points: Compute the distance between two lat/long points with the proper equations, allowing the game to be played over much larger distances than our little campus.
     - Since we will already be reporting the players’ location 4 times every minute, we will store that data 
