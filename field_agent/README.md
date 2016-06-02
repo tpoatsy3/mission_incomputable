@@ -1,15 +1,57 @@
-## Field Agent
-A Pebble adventure game. 
+README for Field Agent
+David Kotz, April 2016
 
-### Compiling
-Either "make" from top level directory or "pebble build" from field agent directory if you only wish to compile this part of the app. 
+Compiling:
+mygcc -o subtemplate subtemplate.c
 
-### Usage
-This is an app for the Pebble watch that keeps track of a user's location and direction and sends messages every time the user is on the move. From the Pebble watch the user is able to neutralize a code, capture a player and view messages. The user's status and direction is displayed at the top of the home screen of the watch. 
+Usage:
+/* 
+* subtemplate.c - substitute text into a template file
+* 
+* usage: subtemplate target replacement
+* where:
+*   target is a string to be replaced wherever it appears in the input;
+*   replacement is a filename for file containing replacement text
+* output:
+*   read the stdin, copying it to stdout, but wherever the 
+*   target text is found, replace it with the contents of the 
+*   replacement file.
+* stdin: the input template
+* stdout: the modified template
+* stderr: error messages
+*
+* David Kotz, April 2016
+*/
 
-From the home page of the app the user has four options: Neutralize Code, Code Drop, Request Status and Messages. If neutralize code is pressed, then a drop down menu of characters 0-9 and A-F is presented for the user to input the four-digit hex code of the code to neutralize. If capture is pressed, then the same keyboard is presented, allowing the user to also select a four digit hex. For both of these options, after the hex has been inputted the user is taken to a confirmation page, and upon pressing "Yes" the app sends the code to the server, specifying whether it was a code drop or a player captured. The request status button sends a message to the server to return the status of the game. The messages button takes the user to a list of messages that have come from the server. 
+Example command lines:
 
-If the player is on the move, then it will send its location to the server every fifteen seconds. If the player is stationary then it only sends once a minute. 
+cat header.template | ./subtemplate @TITLE@ title.txt 
+cat header.template | ./subtemplate @TITLE@ title.txt  | ./subtemplate @HEADCAPTION@ header.txt 
 
-### Limitations
-Because we could not get the Pebble to connect to the server we could not test much of the functionality. 
+Exit status:
+0 - success
+1 - incorrect number of arguments
+2 - bad target string
+3 - cannot open replacement file
+4 - error during input
+
+Assumptions:
+
+- replacement files should not contain subsequent target strings,
+except where desired; in the second example above, if title.txt
+contains @HEADCAPTION@ it will be replaced by the second
+subtemplate; but if header.txt contains @TITLE@ it will not be
+replaced; this assumption imposes order on the pipeline, and may or
+may not lead to desired behavior.
+
+"Non"-Assumptions:
+
+- stdin and replacement file need not end with a newline
+- stdin and replacement file may contain any characters
+- target string may contain any characters (other than null, of course)
+- target string may occur multiple times on a line, or in the file
+
+Limitations:
+
+- certain types of target strings will fail; for example, target
+"ababc" will not be found in input "abababc".

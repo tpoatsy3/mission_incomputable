@@ -19,12 +19,51 @@
     "AppKeySendError": 5
   },
   "resources": {
-    "media": []
+    "media": [
+		{
+	        "type": "png",
+	        "name": "IMAGE_CAPTURE",
+	        "file": "img/capture.png"
+    	},
+    	{
+	        "type": "png",
+	        "name": "IMAGE_CODE",
+	        "file": "img/code.png"
+    	},
+    	{
+	        "type": "png",
+	        "name": "IMAGE_MESSAGES",
+	        "file": "img/message.png"
+    	},
+    	{
+	        "type": "png",
+	        "name": "IMAGE_STATUS",
+	        "file": "img/status.png"
+    	}
+    	,
+    	{
+	        "type": "png",
+	        "name": "IMAGE_CODE_BIG",
+	        "file": "img/codebig.png"
+    	}
+    	,
+    	{
+	        "type": "png",
+	        "name": "IMAGE_CAPTURE_BIG",
+	        "file": "img/capturebig.png"
+    	}
+      ,
+      {
+          "type": "png",
+          "name": "IMAGE_CHECK",
+          "file": "img/check.png"
+      }
+    ]
   }, 
   "capabilities": [ "location" ], 
   "appjsDebug": "false", 
-  "proxyWSSServerURL": "localhost", 
+  "proxyWSSServerURL": "flume.cs.dartmouth.edu", 
   "proxyWSSServerPort": 58503, 
-  "targetServerURL": "localhost", 
+  "targetServerURL": "flume.cs.dartmouth.edu", 
   "targetServerPort": 47218
 }
