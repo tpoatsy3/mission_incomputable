@@ -2,8 +2,8 @@
 # 
 # Topaz, May 2016
 
-L = ./lib
-C = ./common
+L = ../lib
+C = ../common
 
 PROG = guideAgent
 OBJS = guideAgent.o

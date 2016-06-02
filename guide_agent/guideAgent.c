@@ -24,9 +24,9 @@
 #include <netdb.h>	      // socket-related structures
 #include <arpa/inet.h>	      // socket-related calls
 #include <sys/select.h>	      // select-related stuff 
-#include "common/file.h"	   // readline
-#include "lib/hashtable/hashtable.h"
-#include "lib/list/list.h"
+#include "../common/file.h"	   // readline
+#include "../lib/hashtable/hashtable.h"
+#include "../lib/list/list.h"
 #include "guideAgent.h"
 
 /******************** local types *************************/
