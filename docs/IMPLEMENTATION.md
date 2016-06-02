@@ -64,9 +64,14 @@
 – List Struct: holds messages recieved by the server
 
 ### Pebble Output
-<img src="pebble/pebble1.png" height ="100">
-
-
+<img src="pebble/pebble1.png" height ="150">
+<img src="pebble/pebble2.png" height ="100">
+<img src="pebble/pebble3.png" height ="100">
+<img src="pebble/pebble4.png" height ="100">
+<img src="pebble/pebble5.png" height ="100">
+<img src="pebble/pebble6.png" height ="100">
+<img src="pebble/pebble7.png" height ="100">
+<img src="pebble/pebble8.png" height ="100">
 
 # Guide Agent
 ## Pseudocode
