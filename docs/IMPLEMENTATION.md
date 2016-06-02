@@ -75,7 +75,7 @@
 
 We put in icons to help to user have a better sense of what each part of the app accomplishes. Especially if a user weren't as fluent in English he or she would have an easier time navigating our app with our UI. We also made the status bar red to highlight that it was an important piece of information.
 
-###Other Extensions
+### Other Extensions
 We implemented the health extension and the compass extension. From the top of the home page, the compass direction is displayed. Right below, the calorie and step count since the game started is displayed.
 
 # Guide Agent
