@@ -63,6 +63,18 @@
 
 – List Struct: holds messages recieved by the server
 
+### Pebble Output
+
+![alt text](pebble/pebble1.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble2.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble3.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble4.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble5.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble6.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble7.png "Network Diagram courtesy of Travis Peters")
+![alt text](pebble/pebble8.png "Network Diagram courtesy of Travis Peters")
+
+
 # Guide Agent
 ## Pseudocode
 1. execute from the commandline with usage syntax
